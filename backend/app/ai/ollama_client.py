@@ -70,11 +70,20 @@ async def list_models() -> List[str]:
 
 async def get_best_model() -> str:
     """Get the configured model or best available model in Ollama."""
-    if settings.OLLAMA_MODEL:
-        return settings.OLLAMA_MODEL
-
     models = await list_models()
-    return models[0] if models else "qwen2.5:3b"
+    if not models:
+        return settings.OLLAMA_MODEL or "qwen2.5:3b"
+
+    target = (settings.OLLAMA_MODEL or "").strip().lower()
+    
+    # 1. Exact or substring match in available model tags
+    if target:
+        for available in models:
+            if target == available.lower() or target in available.lower():
+                return available
+
+    # 2. Fallback to first available model from list
+    return models[0]
 
 
 async def chat_completion(
