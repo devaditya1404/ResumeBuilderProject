@@ -9,13 +9,11 @@ services:
         value: 3.9.16
       - key: ALLOWED_ORIGINS
         value: https://talentvault-frontend.onrender.com
-      - key: OLLAMA_MODE
-        value: cloud
-      - key: OLLAMA_BASE_URL
-        value: https://ollama.com
-      - key: OLLAMA_MODEL
-        value: qwen2.5:3b
-      - key: OLLAMA_API_KEY
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: GROQ_API_KEY
         sync: false
     disk:
       name: talentvault-storage

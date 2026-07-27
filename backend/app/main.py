@@ -7,10 +7,19 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.api import candidates, resumes, requirements, dashboard
 
+import logging
+
+logger = logging.getLogger("main")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Auto-initialize SQLite database and tables on startup
     await init_db()
+    logger.info(
+        f"Startup Diagnostics: LLM_PROVIDER='{settings.LLM_PROVIDER}', "
+        f"OLLAMA_MODE='{settings.OLLAMA_MODE}', GROQ_MODEL='{settings.GROQ_MODEL}', "
+        f"GROQ_API_KEY Configured={'YES' if bool(settings.GROQ_API_KEY or settings.CLOUD_LLM_API_KEY) else 'NO'}"
+    )
     yield
 
 app = FastAPI(
