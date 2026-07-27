@@ -27,6 +27,7 @@ origins = [
     "http://localhost:3001",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
+    "https://talentvault-frontend.onrender.com",
 ]
 if allowed_origins_env:
     if allowed_origins_env.strip() == "*":
