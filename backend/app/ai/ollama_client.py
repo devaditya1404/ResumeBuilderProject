@@ -4,6 +4,8 @@ Ollama HTTP Client supporting both Local and Ollama Cloud API modes.
 Handles:
 - Health check (Local tags endpoint or Cloud status)
 - Bearer token authorization header for Ollama Cloud API
+- Verified model discovery (tests generation before selecting in Cloud mode)
+- In-memory model caching to prevent repeated model checks
 - Chat completion with JSON mode & compact extraction
 - Specific error taxonomy: OLLAMA_AUTH_ERROR, OLLAMA_RATE_LIMIT, OLLAMA_TIMEOUT, OLLAMA_CLOUD_ERROR
 """
@@ -20,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Global lock: maximum 1 concurrent Ollama LLM call allowed at a time
 OLLAMA_LOCK = asyncio.Lock()
+
+# Cached verified cloud model for production
+_VERIFIED_CLOUD_MODEL: Optional[str] = None
 
 
 def get_ollama_headers() -> Dict[str, str]:
@@ -46,7 +51,6 @@ async def check_ollama_health() -> bool:
             response = await client.get(url, headers=headers)
             return response.status_code in (200, 204)
     except Exception:
-        # In cloud mode with API key, assume reachable if key is provided
         if settings.OLLAMA_MODE == "cloud" and settings.OLLAMA_API_KEY:
             return True
         return False
@@ -64,26 +68,72 @@ async def list_models() -> List[str]:
                 return [m["name"] for m in data.get("models", [])]
     except Exception:
         pass
-    # If list models endpoint fails or returns empty, fallback to configured settings.OLLAMA_MODEL
     return [settings.OLLAMA_MODEL]
 
 
+async def discover_and_verify_cloud_model() -> str:
+    """
+    In Cloud mode, test candidate models with a minimal generation request
+    to ensure the model is actually accessible on free/active plans before selecting.
+    """
+    global _VERIFIED_CLOUD_MODEL
+    if _VERIFIED_CLOUD_MODEL:
+        return _VERIFIED_CLOUD_MODEL
+
+    base_url = get_base_url()
+    headers = get_ollama_headers()
+
+    # Query tags first
+    available_tags = await list_models()
+    candidates = []
+    if settings.OLLAMA_MODEL and settings.OLLAMA_MODEL not in candidates:
+        candidates.append(settings.OLLAMA_MODEL)
+    for tag in available_tags:
+        if tag not in candidates:
+            candidates.append(tag)
+
+    # Standard fallback models to test
+    fallbacks = [
+        "qwen2.5:3b", "qwen2.5:7b", "qwen2.5", "qwen2.5:1.5b", "qwen2.5:0.5b",
+        "llama3.2", "llama3.2:3b", "llama3.1:8b", "mistral:7b", "gemma2:2b"
+    ]
+    for fb in fallbacks:
+        if fb not in candidates:
+            candidates.append(fb)
+
+    logger.info(f"Testing {len(candidates)} candidate cloud models for free generation access...")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for model_name in candidates:
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": "Reply only with OK"}],
+                "stream": False
+            }
+            try:
+                res = await client.post(f"{base_url}/api/chat", json=payload, headers=headers)
+                if res.status_code == 200:
+                    content = res.json().get("message", {}).get("content", "")
+                    if content and "OK" in content.upper():
+                        logger.info(f"Verified accessible Cloud Model: '{model_name}'")
+                        _VERIFIED_CLOUD_MODEL = model_name
+                        return model_name
+                else:
+                    logger.warning(f"Cloud model '{model_name}' test returned HTTP {res.status_code}: {res.text[:100]}")
+            except Exception as e:
+                logger.warning(f"Error testing candidate cloud model '{model_name}': {e}")
+
+    # Fallback to configured model if test loop completes
+    _VERIFIED_CLOUD_MODEL = settings.OLLAMA_MODEL or "qwen2.5:3b"
+    return _VERIFIED_CLOUD_MODEL
+
+
 async def get_best_model() -> str:
-    """Get the configured model or best available model in Ollama."""
-    models = await list_models()
-    if not models:
+    """Get the configured model for local mode or verified model for cloud mode."""
+    if settings.OLLAMA_MODE == "local":
         return settings.OLLAMA_MODEL or "qwen2.5:3b"
-
-    target = (settings.OLLAMA_MODEL or "").strip().lower()
     
-    # 1. Exact or substring match in available model tags
-    if target:
-        for available in models:
-            if target == available.lower() or target in available.lower():
-                return available
-
-    # 2. Fallback to first available model from list
-    return models[0]
+    return await discover_and_verify_cloud_model()
 
 
 async def chat_completion(
@@ -102,6 +152,8 @@ async def chat_completion(
     - "client_wall_time_ms": processing time in ms
     - "error": error code/message if failed (or None if success)
     """
+    global _VERIFIED_CLOUD_MODEL
+
     if model is None:
         model = await get_best_model()
 
@@ -142,11 +194,23 @@ async def chat_completion(
             # Error taxonomy handling
             if response.status_code in (401, 403):
                 logger.error(f"Ollama Auth Error [{response.status_code}]: {response.text[:200]}")
+                # Reset cached model if subscription/auth failed on this model
+                _VERIFIED_CLOUD_MODEL = None
                 return {
                     "content": "",
                     "model": model,
                     "client_wall_time_ms": client_wall_time_ms,
-                    "error": "OLLAMA_AUTH_ERROR",
+                    "error": f"OLLAMA_HTTP_{response.status_code}: {response.text[:200]}",
+                }
+
+            if response.status_code == 404:
+                logger.error(f"Ollama Model Not Found [404]: {response.text[:200]}")
+                _VERIFIED_CLOUD_MODEL = None
+                return {
+                    "content": "",
+                    "model": model,
+                    "client_wall_time_ms": client_wall_time_ms,
+                    "error": f"OLLAMA_HTTP_404: {response.text[:200]}",
                 }
 
             if response.status_code == 429:
