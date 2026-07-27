@@ -1,0 +1,39 @@
+# Python & Virtual Environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node & Frontend Build
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.eslintcache
+
+# Databases & Local SQLite
+*.db
+*.sqlite
+*.sqlite3
+talentvault.db
+
+# Uploaded Resume Files & Data Storage
+backend/data/resumes/*
+backend/uploads/*
+!backend/data/resumes/.gitkeep
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment Files
+.env
+.env.local
+.env.production
