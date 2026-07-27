@@ -49,7 +49,7 @@ export const SettingsPage: React.FC = () => {
                 <option value="mistral:7b">mistral:7b</option>
               </select>
               <p className="text-[11px] text-slate-400 mt-1">
-                Selected model will be invoked locally via <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">http://localhost:11434</code>.
+                Selected model will be invoked via backend AI service API.
               </p>
             </div>
           </div>

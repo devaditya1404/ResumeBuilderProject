@@ -9,6 +9,14 @@ services:
         value: 3.9.16
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: OLLAMA_MODE
+        value: cloud
+      - key: OLLAMA_BASE_URL
+        value: https://ollama.com
+      - key: OLLAMA_MODEL
+        value: qwen2.5:3b
+      - key: OLLAMA_API_KEY
+        sync: false
     disk:
       name: talentvault-storage
       mountPath: /app/data
