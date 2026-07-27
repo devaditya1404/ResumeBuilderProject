@@ -8,7 +8,9 @@ import json
 import logging
 import time
 from typing import Optional, Dict, Any, Tuple
-from app.ai.ollama_client import chat_completion, check_ollama_health
+from app.ai.ollama_client import chat_completion
+from app.ai.llm_provider import get_llm_provider
+from app.core.config import settings
 from app.ai.extraction_schemas import (
     CompactResumeExtraction,
     CompactExperience,
@@ -104,7 +106,7 @@ async def extract_resume_with_llm(
     section_hints: list,
 ) -> Tuple[Optional[ResumeExtraction], Dict[str, Any]]:
     """
-    Make a single compact structured extraction call to Ollama.
+    Make a single compact structured extraction call to configured LLM provider.
     Returns canonical ResumeExtraction model and performance metadata.
     """
     metadata: Dict[str, Any] = {
@@ -123,11 +125,15 @@ async def extract_resume_with_llm(
         "compact_json": None,
     }
 
-    # Check Ollama health
-    is_healthy = await check_ollama_health()
+    # Resolve active provider & check provider health
+    provider = get_llm_provider()
+    logger.info(f"Resume AI provider active: {settings.LLM_PROVIDER}")
+
+    is_healthy = await provider.check_health()
     if not is_healthy:
-        metadata["error"] = "OLLAMA_NOT_RUNNING"
-        logger.error("Ollama is not running. Cannot extract resume.")
+        err_msg = "LOCAL_OLLAMA_NOT_RUNNING" if settings.LLM_PROVIDER == "ollama" else "GROQ_API_KEY_NOT_CONFIGURED"
+        metadata["error"] = err_msg
+        logger.error(f"AI Provider '{settings.LLM_PROVIDER}' check failed: {err_msg}")
         return None, metadata
 
     # Build prompt

@@ -27,6 +27,11 @@ class LLMProvider(ABC):
     """Abstract Base Class for all LLM providers."""
 
     @abstractmethod
+    async def check_health(self) -> bool:
+        """Check if provider service / API key configuration is healthy."""
+        pass
+
+    @abstractmethod
     async def chat_completion(
         self,
         prompt: str,
@@ -54,6 +59,15 @@ class OllamaLocalProvider(LLMProvider):
         self.base_url = settings.OLLAMA_BASE_URL.rstrip("/")
         self.default_model = settings.OLLAMA_MODEL or "qwen2.5:3b"
         self.timeout = settings.OLLAMA_TIMEOUT_SECONDS
+
+    async def check_health(self) -> bool:
+        try:
+            url = f"{self.base_url}/api/tags"
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                res = await client.get(url)
+                return res.status_code in (200, 204)
+        except Exception:
+            return False
 
     async def chat_completion(
         self,
@@ -122,6 +136,9 @@ class GroqCloudProvider(LLMProvider):
         self.api_key = settings.GROQ_API_KEY or settings.CLOUD_LLM_API_KEY
         self.default_model = settings.GROQ_MODEL or "llama-3.1-8b-instant"
         self.timeout = 30.0  # Fast cloud inference timeout
+
+    async def check_health(self) -> bool:
+        return bool(self.api_key and self.api_key.strip())
 
     async def chat_completion(
         self,
@@ -214,13 +231,17 @@ class GroqCloudProvider(LLMProvider):
 def get_llm_provider() -> LLMProvider:
     """
     Factory function to resolve active LLM provider.
+    - If LLM_PROVIDER is explicitly set to 'groq' -> GroqCloudProvider
     - If LLM_PROVIDER is 'ollama' or OLLAMA_MODE is 'local' -> OllamaLocalProvider
     - Otherwise -> GroqCloudProvider (Cloud Production LLM)
     """
-    provider_name = settings.LLM_PROVIDER.lower()
-    ollama_mode = settings.OLLAMA_MODE.lower()
+    provider_name = (settings.LLM_PROVIDER or "").lower().strip()
+    ollama_mode = (settings.OLLAMA_MODE or "").lower().strip()
+
+    if provider_name == "groq":
+        return GroqCloudProvider()
 
     if provider_name == "ollama" or ollama_mode == "local":
         return OllamaLocalProvider()
-    
+
     return GroqCloudProvider()
