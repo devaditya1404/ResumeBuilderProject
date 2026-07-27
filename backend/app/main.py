@@ -20,28 +20,32 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configure CORS dynamically for cloud deployment & local dev ports
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
-origins = [
+# Explicitly allowed frontend origins for production and local development
+default_origins = [
+    "https://talentvault-frontend.onrender.com",
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
-    "https://talentvault-frontend.onrender.com",
+    "http://127.0.0.1:5173",
 ]
-if allowed_origins_env:
-    if allowed_origins_env.strip() == "*":
-        origins = ["*"]
-    else:
-        for o in allowed_origins_env.split(","):
-            cleaned = o.strip()
-            if cleaned and cleaned not in origins:
-                origins.append(cleaned)
 
+# Parse environment variable ALLOWED_ORIGINS if provided
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+allowed_origins = list(default_origins)
+
+if allowed_origins_env and allowed_origins_env.strip():
+    for item in allowed_origins_env.split(","):
+        cleaned = item.strip().rstrip("/")
+        if cleaned and cleaned not in allowed_origins:
+            allowed_origins.append(cleaned)
+
+# Configure FastAPI CORSMiddleware with credentials support
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if origins != ["*"] else ["*"],
-    allow_credentials=True if origins != ["*"] else False,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

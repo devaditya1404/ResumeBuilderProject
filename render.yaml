@@ -8,7 +8,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.9.16
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: https://talentvault-frontend.onrender.com
       - key: OLLAMA_MODE
         value: cloud
       - key: OLLAMA_BASE_URL
