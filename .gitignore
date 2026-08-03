@@ -21,6 +21,9 @@ frontend/.vite/
 *.sqlite
 *.sqlite3
 talentvault.db
+*.db-shm
+*.db-wal
+data/
 
 # Uploaded Resume Files & Data Storage
 backend/data/resumes/*

@@ -14,6 +14,36 @@ from typing import List, Set, Optional
 
 # Known alias dictionary (normalized lowercase -> Canonical display string)
 SKILL_ALIASES = {
+    "java": "Java",
+    "core java": "Java",
+    "java 8+": "Java",
+    "java 8": "Java",
+    "java 11": "Java",
+    "java 17": "Java",
+    "java ee": "Java",
+    "j2ee": "Java",
+    "springboot": "Spring Boot",
+    "spring boot": "Spring Boot",
+    "sql": "SQL",
+    "oracle sql": "SQL",
+    "mysql": "SQL",
+    "pl/sql": "SQL",
+    "plsql": "SQL",
+    "t-sql": "SQL",
+    "tsql": "SQL",
+    "sdlc": "SDLC",
+    "software development life cycle": "SDLC",
+    "git": "Git",
+    "github": "Git",
+    "gitlab": "Git",
+    "jira": "Jira",
+    "atlassian jira": "Jira",
+    "rest api": "REST API",
+    "restful api": "REST API",
+    "restful apis": "REST API",
+    "restful webservices": "REST API",
+    "restful": "REST API",
+    "rest": "REST API",
     "excel": "Excel",
     "ms excel": "Excel",
     "microsoft excel": "Excel",
@@ -34,12 +64,10 @@ SKILL_ALIASES = {
     "javascript": "JavaScript",
     "ts": "TypeScript",
     "typescript": "TypeScript",
-    "springboot": "Spring Boot",
-    "spring boot": "Spring Boot",
     "k8s": "Kubernetes",
     "kubernetes": "Kubernetes",
-    "aws": "Amazon Web Services",
-    "amazon web services": "Amazon Web Services",
+    "aws": "AWS",
+    "amazon web services": "AWS",
     "gcp": "Google Cloud Platform",
     "google cloud": "Google Cloud Platform",
     "google cloud platform": "Google Cloud Platform",
@@ -48,9 +76,9 @@ SKILL_ALIASES = {
     "microsoft azure": "Microsoft Azure",
     "tf": "Terraform",
     "terraform": "Terraform",
-    "react": "React.js",
-    "reactjs": "React.js",
-    "react.js": "React.js",
+    "react": "React",
+    "reactjs": "React",
+    "react.js": "React",
     "node": "Node.js",
     "nodejs": "Node.js",
     "node.js": "Node.js",
@@ -58,7 +86,6 @@ SKILL_ALIASES = {
     "no sql": "NoSQL",
     "py": "Python",
     "python": "Python",
-    "sql": "SQL",
     "pivot table": "Pivot Tables",
     "pivot tables": "Pivot Tables",
     "pivot": "Pivot Tables",
@@ -78,6 +105,17 @@ DISTINCT_PAIRS = {
     ("azure", "aws"),
     ("docker", "kubernetes"),
     ("kubernetes", "docker"),
+    ("react", "angular"),
+    ("angular", "react"),
+    ("react", "angularjs"),
+    ("angularjs", "react"),
+    ("sql", "oracle"),
+    ("oracle", "sql"),
+}
+
+GENERIC_CATEGORY_WORDS = {
+    "tools", "frameworks", "methodology", "database", "database:", "testing:", "concepts:", "api",
+    "frameworks:", "tools:", "methodology:", "concepts", "integration", "api integration"
 }
 
 
@@ -96,30 +134,29 @@ def extract_atomic_skills(raw_skill_input: str) -> List[str]:
     """
     Split category prefixes and composite skill entries into atomic comparable skills.
     Example:
-      'Data Analytics Tools: Tableau, Power BI, Microsoft Excel (Intermediate)'
-      -> ['Tableau', 'Power BI', 'Excel']
+      'Multithreading Frameworks: Spring Boot' -> ['Spring Boot']
+      'API integration Database: MySQL / PostgreSQL / Oracle' -> ['SQL', 'PostgreSQL', 'Oracle']
     """
     if not raw_skill_input or not isinstance(raw_skill_input, str):
         return []
 
     cleaned = clean_ocr_and_annotations(raw_skill_input)
-
-    # Strip category prefix if present (e.g. "Data Analytics Tools: Tableau, Power BI")
-    if ":" in cleaned:
-        parts = cleaned.split(":", 1)
-        cleaned = parts[1].strip()
-
-    # Split by comma, semicolon, bullet
-    sub_tokens = re.split(r'[,;•\n]+', cleaned)
     atomic_list: List[str] = []
+
+    # Split by colon, slash, comma, semicolon, bullet, newline
+    sub_tokens = re.split(r'[:/,;•\n]+', cleaned)
 
     for token in sub_tokens:
         tok_clean = token.strip()
         if not tok_clean:
             continue
+        
+        # Skip pure category labels like "Frameworks", "Database", "Testing"
+        if tok_clean.lower() in GENERIC_CATEGORY_WORDS:
+            continue
 
         norm = normalize_skill_name(tok_clean)
-        if norm and norm not in atomic_list:
+        if norm and norm.lower() not in GENERIC_CATEGORY_WORDS and norm not in atomic_list:
             atomic_list.append(norm)
 
     return atomic_list
@@ -145,6 +182,12 @@ def normalize_skill_name(skill: str) -> str:
         return "Power BI"
     if lower == "tableau":
         return "Tableau"
+    if lower in ["java 8+", "java 8", "java 11", "java 17", "core java"]:
+        return "Java"
+    if "spring boot" in lower:
+        return "Spring Boot"
+    if lower in ["restful api", "restful apis", "rest api", "restful webservices"]:
+        return "REST API"
 
     return cleaned
 
@@ -174,6 +217,17 @@ def skills_match(skill_a: str, skill_b: str) -> bool:
     if canon_a.lower() == canon_b.lower():
         return True
 
+    # Check atomic sub-tokens if composite strings are passed
+    sub_a = extract_atomic_skills(skill_a)
+    sub_b = extract_atomic_skills(skill_b)
+
+    for sa in sub_a:
+        for sb in sub_b:
+            if (sa.lower(), sb.lower()) in DISTINCT_PAIRS or (sb.lower(), sa.lower()) in DISTINCT_PAIRS:
+                continue
+            if sa.lower() == sb.lower() or normalize_skill_name(sa).lower() == normalize_skill_name(sb).lower():
+                return True
+
     # Safe phrase check (e.g. "Excel" vs "Microsoft Excel" or "Excel Functions")
     if canon_a.lower() == "excel" and ("excel" in b_lower):
         return True
@@ -186,3 +240,4 @@ def skills_match(skill_a: str, skill_b: str) -> bool:
         return True
 
     return False
+

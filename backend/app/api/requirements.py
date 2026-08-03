@@ -5,11 +5,14 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models import Requirement, RequirementSkill, Candidate, CandidateSkill, MatchResult
+from app.models import (
+    Requirement, RequirementSkill, Candidate, CandidateSkill, MatchResult,
+    CandidateExperience, CandidateProject, CandidateCertification, CandidateEducation, Resume
+)
 from app.schemas.requirement import (
     RequirementCreate, RequirementUpdate, RequirementResponse, RequirementSkillResponse
 )
-from app.services.jd_parser import parse_jd
+from app.services.jd_parser import parse_jd, parse_jd_deterministically
 from app.services.skill_alias import extract_atomic_skills
 from app.services.match_engine import evaluate_match
 from app.services.match_explainer import generate_match_explanation
@@ -167,6 +170,98 @@ async def recalculate_candidate_matches(candidate_id: str, db: AsyncSession):
 
     await db.commit()
 
+
+async def build_candidate_eval_dict(candidate: Candidate, db: AsyncSession) -> Dict[str, Any]:
+    """Gather complete multi-section evidence data for candidate."""
+    # 1. Candidate Skills
+    raw_cand_skills = []
+    stmt_skills = (
+        select(CandidateSkill)
+        .where(CandidateSkill.candidate_id == candidate.id)
+        .options(selectinload(CandidateSkill.skill))
+    )
+    res_sk = await db.execute(stmt_skills)
+    for cs in res_sk.scalars().all():
+        if cs.skill and cs.skill.name:
+            raw_cand_skills.append(cs.skill.name)
+
+    cand_skills = []
+    for raw_s in raw_cand_skills:
+        for atomic_s in extract_atomic_skills(raw_s):
+            if atomic_s and atomic_s not in cand_skills:
+                cand_skills.append(atomic_s)
+
+    # 2. Employment Experiences
+    experiences_list = []
+    stmt_exp = select(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id)
+    res_exp = await db.execute(stmt_exp)
+    for exp in res_exp.scalars().all():
+        experiences_list.append({
+            "company": exp.company,
+            "designation": exp.designation,
+            "start_date": exp.start_date,
+            "end_date": exp.end_date,
+            "is_current": exp.is_current,
+            "duration_months": exp.duration_months,
+            "responsibilities": exp.responsibilities or [],
+        })
+
+    # 3. Projects
+    projects_list = []
+    stmt_proj = select(CandidateProject).where(CandidateProject.candidate_id == candidate.id)
+    res_proj = await db.execute(stmt_proj)
+    for proj in res_proj.scalars().all():
+        projects_list.append({
+            "name": proj.name,
+            "description": proj.description,
+            "technologies": proj.technologies or [],
+        })
+
+    # 4. Certifications
+    cert_list = []
+    stmt_cert = select(CandidateCertification).where(CandidateCertification.candidate_id == candidate.id)
+    res_cert = await db.execute(stmt_cert)
+    for cert in res_cert.scalars().all():
+        cert_list.append({
+            "name": cert.name,
+            "issuer": cert.issuer,
+        })
+
+    # 5. Education
+    edu_list = []
+    stmt_edu = select(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id)
+    res_edu = await db.execute(stmt_edu)
+    for edu in res_edu.scalars().all():
+        edu_list.append(edu.institution or edu.degree or "")
+
+    # 6. Resume Raw Text
+    raw_text = ""
+    stmt_res = select(Resume).where(Resume.candidate_id == candidate.id).order_by(Resume.uploaded_at.desc())
+    res_r = await db.execute(stmt_res)
+    resumes = res_r.scalars().all()
+    if resumes:
+        raw_text = "\n".join(r.raw_text for r in resumes if r.raw_text)
+
+    return {
+        "name": candidate.name,
+        "skills": cand_skills,
+        "experiences": experiences_list,
+        "projects": projects_list,
+        "certifications": cert_list,
+        "education": edu_list,
+        "summary": candidate.professional_summary or "",
+        "professional_summary": candidate.professional_summary or "",
+        "raw_text": raw_text,
+        "experience_years": candidate.experience_years,
+        "experience_months": candidate.experience_months,
+        "current_company": candidate.current_company,
+        "current_designation": candidate.current_designation,
+        "latest_company": candidate.latest_company,
+        "latest_designation": candidate.latest_designation,
+        "location": candidate.current_location,
+    }
+
+
 async def _match_single_candidate(
     requirement: Requirement,
     candidate: Candidate,
@@ -195,42 +290,7 @@ async def _match_single_candidate(
         "location": requirement.location,
     }
 
-    raw_cand_skills = []
-    if hasattr(candidate, "candidate_skills") and candidate.candidate_skills:
-        for cs in candidate.candidate_skills:
-            if hasattr(cs, "skill") and cs.skill:
-                raw_cand_skills.append(cs.skill.name)
-    
-    if not raw_cand_skills:
-        # Explicit query for candidate_skills
-        stmt_skills = (
-            select(CandidateSkill)
-            .where(CandidateSkill.candidate_id == candidate.id)
-            .options(selectinload(CandidateSkill.skill))
-        )
-        res_sk = await db.execute(stmt_skills)
-        for cs in res_sk.scalars().all():
-            if cs.skill and cs.skill.name:
-                raw_cand_skills.append(cs.skill.name)
-
-    cand_skills = []
-    for raw_s in raw_cand_skills:
-        for atomic_s in extract_atomic_skills(raw_s):
-            if atomic_s and atomic_s not in cand_skills:
-                cand_skills.append(atomic_s)
-
-    cand_data = {
-        "name": candidate.name,
-        "skills": cand_skills,
-        "experience_years": candidate.experience_years,
-        "experience_months": candidate.experience_months,
-        "current_company": candidate.current_company,
-        "current_designation": candidate.current_designation,
-        "latest_company": candidate.latest_company,
-        "latest_designation": candidate.latest_designation,
-        "education": [e.institution for e in candidate.education] if candidate.education else [],
-        "location": candidate.current_location,
-    }
+    cand_data = await build_candidate_eval_dict(candidate, db)
 
     det_output = evaluate_match(jd_data, cand_data)
 
@@ -274,6 +334,8 @@ async def _match_single_candidate(
     match_rec.strengths = strengths
     match_rec.gaps = improvements
     match_rec.explanation = explanation
+
+    return match_rec
 
     return match_rec
 
@@ -413,3 +475,81 @@ async def get_candidate_match_details(requirement_id: str, candidate_id: str, db
 async def match_single_candidate_endpoint(requirement_id: str, candidate_id: str, db: AsyncSession = Depends(get_db)):
     """Run/rematch single candidate against requirement."""
     return await get_candidate_match_details(requirement_id, candidate_id, db)
+
+
+@router.get("/{requirement_id}/debug_candidate/{candidate_id}")
+async def debug_candidate_match(requirement_id: str, candidate_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Debug mode endpoint producing step-by-step evaluation trace for a single candidate & JD:
+    Candidate Profile -> JD Requirements -> Requirement-by-Requirement Trace -> Evidence -> Score Calculation -> Final Score & Explanation
+    """
+    stmt_req = select(Requirement).where(Requirement.id == requirement_id).options(selectinload(Requirement.requirement_skills))
+    stmt_cand = select(Candidate).where(Candidate.id == candidate_id)
+
+    req = (await db.execute(stmt_req)).scalar_one_or_none()
+    cand = (await db.execute(stmt_cand)).scalar_one_or_none()
+
+    if not req or not cand:
+        raise HTTPException(status_code=404, detail="Requirement or Candidate not found")
+
+    cand_data = await build_candidate_eval_dict(cand, db)
+
+    mandatory_skills = [
+        s.skill for s in req.requirement_skills if s.importance == "MANDATORY"
+    ]
+    preferred_skills = [
+        s.skill for s in req.requirement_skills if s.importance == "PREFERRED"
+    ]
+    if not mandatory_skills and not preferred_skills and req.job_description:
+        parsed_jd = parse_jd_deterministically(req.job_description, req.job_title)
+        mandatory_skills = parsed_jd.mandatory_skills
+        preferred_skills = parsed_jd.preferred_skills
+
+    jd_data = {
+        "job_title": req.job_title,
+        "mandatory_skills": mandatory_skills,
+        "preferred_skills": preferred_skills,
+        "minimum_experience": req.minimum_experience,
+        "education_requirement": req.education_requirement,
+        "location": req.location,
+    }
+
+    det_output = evaluate_match(jd_data, cand_data)
+    strengths, improvements, explanation = await generate_match_explanation(
+        match_result=det_output,
+        jd_title=req.job_title,
+        candidate_name=cand.name,
+    )
+
+    return {
+        "candidate": {
+            "id": cand.id,
+            "name": cand.name,
+            "current_company": cand.current_company,
+            "current_designation": cand.current_designation,
+            "experience_years": cand.experience_years,
+            "skills": cand_data.get("skills"),
+            "experiences_count": len(cand_data.get("experiences") or []),
+            "projects_count": len(cand_data.get("projects") or []),
+            "certifications_count": len(cand_data.get("certifications") or []),
+            "has_raw_text": bool(cand_data.get("raw_text")),
+        },
+        "jd_requirement": jd_data,
+        "requirement_comparison_trace": det_output.evidence_map,
+        "score_calculation": {
+            "overall_score": det_output.overall_score,
+            "skill_score": det_output.skill_score,
+            "experience_score": det_output.experience_score,
+            "role_score": det_output.role_score,
+            "education_score": det_output.education_score,
+            "location_score": det_output.location_score,
+            "breakdown": det_output.score_breakdown,
+        },
+        "matched_skills": det_output.matching_skills,
+        "missing_mandatory_skills": det_output.missing_mandatory_skills,
+        "missing_preferred_skills": det_output.missing_preferred_skills,
+        "strengths": strengths,
+        "gaps": improvements,
+        "explanation": explanation
+    }
+
