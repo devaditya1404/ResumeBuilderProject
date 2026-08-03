@@ -427,6 +427,32 @@ async def get_requirement_matches(requirement_id: str, db: AsyncSession = Depend
         if not cand:
             continue
 
+        cand_data = await build_candidate_eval_dict(cand, db)
+        mandatory_skills = [s.skill for s in req.requirement_skills if s.importance == "MANDATORY"]
+        preferred_skills = [s.skill for s in req.requirement_skills if s.importance == "PREFERRED"]
+        jd_data = {
+            "job_title": req.job_title,
+            "mandatory_skills": mandatory_skills,
+            "preferred_skills": preferred_skills,
+            "minimum_experience": req.minimum_experience,
+        }
+        det_output = evaluate_match(jd_data, cand_data)
+
+        # Output detailed candidate debug trace
+        logger.info("-------------------------------------------------")
+        logger.info(f"Candidate: {cand.name}")
+        logger.info(f"Normalized Skills: {cand_data.get('skills')}")
+        logger.info(f"JD Skills: {mandatory_skills + preferred_skills}")
+        logger.info("Comparison:")
+        for skill, item in det_output.evidence_map.items():
+            logger.info(f"  - {skill}: {item['status']}")
+        exp_status = "MATCH" if (cand.experience_years or 0) >= (req.minimum_experience or 0) else "PARTIAL MATCH"
+        logger.info(f"Experience: Required {req.minimum_experience or 0} Years, Candidate {cand.experience_years or 0} Years -> Status: {exp_status}")
+        logger.info(f"Inferred Domain: {det_output.inferred_domains}")
+        logger.info(f"Overall Score: {m.overall_score}%")
+        logger.info("Returned: YES")
+        logger.info("-------------------------------------------------")
+
         results.append({
             "id": m.id,
             "requirement_id": m.requirement_id,

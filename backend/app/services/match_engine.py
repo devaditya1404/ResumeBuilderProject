@@ -2,7 +2,7 @@
 Deterministic Match Engine Service.
 
 Calculates match scores, matching skills, missing mandatory skills, missing preferred skills,
-evidence map, and component breakdowns deterministically using candidate structured data from SQLite.
+domain alignment, evidence map, and component breakdowns using structured candidate profile data from database.
 """
 import re
 from typing import Dict, Any, List, Optional, Tuple
@@ -13,6 +13,7 @@ from app.services.skill_alias import (
     extract_atomic_skills,
     DISTINCT_PAIRS
 )
+from app.services.industry_mapper import infer_industries_from_candidate
 
 
 class DeterministicMatchOutput(BaseModel):
@@ -27,6 +28,7 @@ class DeterministicMatchOutput(BaseModel):
     matching_skills: List[str] = Field(default_factory=list)
     missing_mandatory_skills: List[str] = Field(default_factory=list)
     missing_preferred_skills: List[str] = Field(default_factory=list)
+    inferred_domains: List[str] = Field(default_factory=list)
     evidence_map: Dict[str, Any] = Field(default_factory=dict)
     score_breakdown: Dict[str, Any] = Field(default_factory=dict)
     strengths: List[str] = Field(default_factory=list)
@@ -62,6 +64,9 @@ def build_skill_regex(target_skill: str) -> Optional[re.Pattern]:
         return re.compile(r'\b(excel|vlookup|xlookup|pivot\s+tables?)\b', re.IGNORECASE)
     elif lower == "power bi":
         return re.compile(r'\b(power\s*bi|powerbi)\b', re.IGNORECASE)
+    elif lower.startswith("sap"):
+        escaped = re.escape(lower)
+        return re.compile(r'\b' + escaped + r'\b', re.IGNORECASE)
 
     escaped = re.escape(target_skill.strip())
     if escaped:
@@ -85,7 +90,6 @@ def search_text_snippet_for_skill(text: str, target_skill: str) -> Optional[str]
     matched_word = match.group(0).lower()
     target_lower = target_skill.lower()
 
-    # Verify no distinct pair violation
     if (matched_word, target_lower) in DISTINCT_PAIRS or (target_lower, matched_word) in DISTINCT_PAIRS:
         return None
 
@@ -95,15 +99,16 @@ def search_text_snippet_for_skill(text: str, target_skill: str) -> Optional[str]
     return snippet
 
 
-def find_skill_evidence_in_candidate(req_skill: str, candidate_data: Dict[str, Any]) -> Tuple[bool, Optional[str], str]:
+def find_skill_evidence_in_candidate(req_skill: str, candidate_data: Dict[str, Any]) -> Tuple[str, Optional[str], str]:
     """
-    Search for evidence of a skill across all candidate sections:
+    Search for evidence of a skill across candidate structured DB profile:
     1. Skills list
     2. Experiences (company, designation, responsibilities)
     3. Projects (name, description, technologies)
     4. Certifications
     5. Summary
-    6. Raw resume text
+
+    Returns (status: "MATCH"|"PARTIAL_MATCH"|"NOT_FOUND", evidence_text: Optional[str], canonical_name: str)
     """
     atomic_targets = extract_atomic_skills(req_skill)
     if not atomic_targets:
@@ -114,7 +119,6 @@ def find_skill_evidence_in_candidate(req_skill: str, candidate_data: Dict[str, A
     projects = candidate_data.get("projects") or []
     certifications = candidate_data.get("certifications") or []
     summary = candidate_data.get("summary") or candidate_data.get("professional_summary") or ""
-    raw_text = candidate_data.get("raw_text") or ""
 
     for target in atomic_targets:
         canon_name = normalize_skill_name(target)
@@ -122,63 +126,58 @@ def find_skill_evidence_in_candidate(req_skill: str, candidate_data: Dict[str, A
         # 1. Dedicated Skills section
         for cs in cand_skills:
             if skills_match(cs, target):
-                return True, f"Skills Section: '{cs}'", canon_name
+                return "MATCH", f"Skills Section: '{cs}'", canon_name
 
         # 2. Employment History
         for exp in experiences:
             comp = exp.get("company") or "Company"
             desig = exp.get("designation") or "Role"
 
-            # Check designation
             if skills_match(desig, target) or search_text_snippet_for_skill(desig, target):
-                return True, f"{comp} | Title: {desig}", canon_name
+                return "MATCH", f"{comp} | Title: {desig}", canon_name
 
-            # Check responsibilities
             resps = exp.get("responsibilities") or []
             if isinstance(resps, str):
                 resps = [resps]
             for r in resps:
                 snippet = search_text_snippet_for_skill(r, target)
                 if snippet:
-                    return True, f"{comp} ({desig}): \"...{snippet}...\"", canon_name
+                    return "MATCH", f"{comp} ({desig}): \"...{snippet}...\"", canon_name
 
         # 3. Projects
         for proj in projects:
             p_name = proj.get("name") or "Project"
             techs = proj.get("technologies") or []
-            if isinstance(techs, list):
-                techs_str = ", ".join(str(t) for t in techs)
-            else:
-                techs_str = str(techs)
+            techs_str = ", ".join(str(t) for t in techs) if isinstance(techs, list) else str(techs)
 
             if search_text_snippet_for_skill(techs_str, target):
-                return True, f"Project '{p_name}' Tech: '{techs_str}'", canon_name
+                return "MATCH", f"Project '{p_name}' Tech: '{techs_str}'", canon_name
 
             p_desc = proj.get("description") or ""
             snippet = search_text_snippet_for_skill(p_desc, target)
             if snippet:
-                return True, f"Project '{p_name}': \"...{snippet}...\"", canon_name
+                return "MATCH", f"Project '{p_name}': \"...{snippet}...\"", canon_name
 
         # 4. Certifications
         for cert in certifications:
             cert_name = cert.get("name") or ""
             if search_text_snippet_for_skill(cert_name, target):
-                return True, f"Certification: '{cert_name}'", canon_name
+                return "MATCH", f"Certification: '{cert_name}'", canon_name
 
         # 5. Professional Summary
         if summary:
             snippet = search_text_snippet_for_skill(summary, target)
             if snippet:
-                return True, f"Professional Summary: \"...{snippet}...\"", canon_name
+                return "MATCH", f"Professional Summary: \"...{snippet}...\"", canon_name
 
-        # 6. Raw Resume Text
-        if raw_text:
-            snippet = search_text_snippet_for_skill(raw_text, target)
-            if snippet:
-                return True, f"Resume Text: \"...{snippet}...\"", canon_name
+    # Check for partial domain / module match (e.g. SAP ERP vs candidate SAP SD/MM)
+    first_canon = normalize_skill_name(req_skill)
+    if "sap" in first_canon.lower():
+        for cs in cand_skills:
+            if "sap" in cs.lower():
+                return "PARTIAL_MATCH", f"Partial match: Candidate has '{cs}' for required '{first_canon}'", first_canon
 
-    default_canon = normalize_skill_name(req_skill)
-    return False, None, default_canon
+    return "NOT_FOUND", None, first_canon
 
 
 def evaluate_match(
@@ -186,8 +185,8 @@ def evaluate_match(
     candidate_data: Dict[str, Any],
 ) -> DeterministicMatchOutput:
     """
-    Perform deterministic JD ↔ Candidate match evaluation.
-    Searches multi-section evidence across skills, experience, projects, summary, and raw text.
+    Perform deterministic JD ↔ Candidate match evaluation using structured candidate data from DB.
+    Enforces soft weighted scoring (skills, experience, domain, role, education, location).
     """
     mandatory_skills = jd_requirement.get("mandatory_skills") or []
     preferred_skills = jd_requirement.get("preferred_skills") or []
@@ -199,18 +198,31 @@ def evaluate_match(
     strengths: List[str] = []
     gaps: List[str] = []
 
+    # Infer domain / industry from employers and projects
+    inferred_domains = infer_industries_from_candidate(candidate_data)
+
     # ── 1. SKILL MATCHING ──
     skill_score: Optional[float] = None
     if mandatory_skills or preferred_skills:
-        matched_mandatory_count = 0
+        mandatory_weighted_points = 0.0
         for req_skill in mandatory_skills:
-            found, evidence, canon_name = find_skill_evidence_in_candidate(req_skill, candidate_data)
-            if found:
-                matched_mandatory_count += 1
+            status, evidence, canon_name = find_skill_evidence_in_candidate(req_skill, candidate_data)
+            if status == "MATCH":
+                mandatory_weighted_points += 1.0
                 if canon_name not in matching_skills:
                     matching_skills.append(canon_name)
                 evidence_map[req_skill] = {
                     "status": "MATCH",
+                    "canonical_name": canon_name,
+                    "evidence": evidence,
+                    "importance": "MANDATORY"
+                }
+            elif status == "PARTIAL_MATCH":
+                mandatory_weighted_points += 0.6
+                if canon_name not in matching_skills:
+                    matching_skills.append(canon_name)
+                evidence_map[req_skill] = {
+                    "status": "PARTIAL_MATCH",
                     "canonical_name": canon_name,
                     "evidence": evidence,
                     "importance": "MANDATORY"
@@ -221,19 +233,19 @@ def evaluate_match(
                 evidence_map[req_skill] = {
                     "status": "NOT_FOUND",
                     "canonical_name": canon_name,
-                    "evidence": "No evidence found across skills, experiences, projects, or resume text.",
+                    "evidence": "No evidence found across structured skills, experiences, or projects.",
                     "importance": "MANDATORY"
                 }
 
-        matched_pref_count = 0
+        pref_weighted_points = 0.0
         for req_skill in preferred_skills:
-            found, evidence, canon_name = find_skill_evidence_in_candidate(req_skill, candidate_data)
-            if found:
-                matched_pref_count += 1
+            status, evidence, canon_name = find_skill_evidence_in_candidate(req_skill, candidate_data)
+            if status in ["MATCH", "PARTIAL_MATCH"]:
+                pref_weighted_points += 1.0 if status == "MATCH" else 0.6
                 if canon_name not in matching_skills:
                     matching_skills.append(canon_name)
                 evidence_map[req_skill] = {
-                    "status": "MATCH",
+                    "status": status,
                     "canonical_name": canon_name,
                     "evidence": evidence,
                     "importance": "PREFERRED"
@@ -244,14 +256,13 @@ def evaluate_match(
                 evidence_map[req_skill] = {
                     "status": "NOT_FOUND",
                     "canonical_name": canon_name,
-                    "evidence": "No evidence found across skills, experiences, projects, or resume text.",
+                    "evidence": "No evidence found across structured skills, experiences, or projects.",
                     "importance": "PREFERRED"
                 }
 
-        # Calculate skill score
-        mandatory_cov = (matched_mandatory_count / len(mandatory_skills)) if mandatory_skills else 1.0
+        mandatory_cov = (mandatory_weighted_points / len(mandatory_skills)) if mandatory_skills else 1.0
         if preferred_skills:
-            pref_cov = matched_pref_count / len(preferred_skills)
+            pref_cov = pref_weighted_points / len(preferred_skills)
             raw_skill_score = ((mandatory_cov * 0.8) + (pref_cov * 0.2)) * 100.0
         else:
             raw_skill_score = mandatory_cov * 100.0
@@ -275,19 +286,34 @@ def evaluate_match(
                 strengths.append(f"Meets required experience: {cand_exp:.1f} years (Requires {min_exp} years)")
             else:
                 experience_score = round(max(0.0, (cand_exp / min_exp) * 100.0), 1)
-                gaps.append(f"Requires {min_exp} years experience; candidate has {cand_exp:.1f} years.")
+                gaps.append(f"Requires {min_exp} years experience; candidate has {cand_exp:.1f} years (PARTIAL MATCH).")
         else:
-            # Fallback check if candidate has experiences list
             exps = candidate_data.get("experiences") or []
             if exps:
-                # Estimate from length/presence of employment records
-                experience_score = 100.0
-                strengths.append(f"Demonstrates relevant work experience across {len(exps)} employment roles.")
+                experience_score = 80.0
+                strengths.append(f"Demonstrates work experience across {len(exps)} employment roles.")
             else:
-                experience_score = None
-                gaps.append(f"Requires {min_exp} years experience; candidate experience details unavailable.")
+                experience_score = 50.0
+                gaps.append(f"Requires {min_exp} years experience; candidate experience details incomplete.")
 
-    # ── 3. ROLE MATCHING ──
+    # ── 3. DOMAIN / INDUSTRY MATCHING ──
+    jd_domains = jd_requirement.get("domain_requirements") or []
+    domain_score: Optional[float] = None
+    if jd_domains:
+        matched_domains = [d for d in jd_domains if any(d.lower() in ind.lower() or ind.lower() in d.lower() for ind in inferred_domains)]
+        if matched_domains:
+            domain_score = 100.0
+            strengths.append(f"Industry domain match demonstrated: {', '.join(matched_domains)}")
+        elif inferred_domains:
+            domain_score = 70.0
+            strengths.append(f"Inferred industry background: {', '.join(inferred_domains[:2])}")
+        else:
+            domain_score = 50.0
+    elif inferred_domains:
+        domain_score = 100.0
+        strengths.append(f"Inferred industry domain: {', '.join(inferred_domains[:2])}")
+
+    # ── 4. ROLE MATCHING ──
     jd_title = (jd_requirement.get("job_title") or "").lower()
     cand_title = (candidate_data.get("current_designation") or candidate_data.get("latest_designation") or "").lower()
 
@@ -298,26 +324,25 @@ def evaluate_match(
         overlap = len(jd_tokens.intersection(cand_tokens))
         if overlap > 0:
             role_score = round(min(100.0, (overlap / len(jd_tokens)) * 100.0), 1)
-            strengths.append(f"Background as '{candidate_data.get('current_designation') or candidate_data.get('latest_designation')}' aligns with target role.")
+            strengths.append(f"Background as '{candidate_data.get('current_designation') or candidate_data.get('latest_designation')}' aligns with role.")
         else:
-            role_score = 50.0  # Relevant background
+            role_score = 60.0
     elif candidate_data.get("experiences"):
-        role_score = 80.0
+        role_score = 75.0
 
-    # ── 4. EDUCATION MATCHING ──
+    # ── 5. EDUCATION MATCHING ──
     jd_edu = jd_requirement.get("education_requirement")
     education_score: Optional[float] = None
     if jd_edu and str(jd_edu).strip():
         cand_edu = candidate_data.get("education") or []
         if cand_edu:
             education_score = 100.0
-            strengths.append("Education criteria satisfied.")
         else:
-            education_score = 50.0
+            education_score = 60.0
     else:
         education_score = 100.0
 
-    # ── 5. LOCATION MATCHING ──
+    # ── 6. LOCATION MATCHING ──
     jd_loc = jd_requirement.get("location")
     cand_loc = candidate_data.get("location")
     location_score: Optional[float] = None
@@ -329,12 +354,13 @@ def evaluate_match(
     else:
         location_score = 100.0
 
-    # ── 6. DYNAMIC WEIGHT NORMALIZATION ──
+    # ── 7. WEIGHTED SCORING MODEL ──
     base_weights = {
-        "skill": (55.0, skill_score),
+        "skill": (45.0, skill_score),
         "experience": (20.0, experience_score),
+        "domain": (15.0, domain_score),
         "role": (10.0, role_score),
-        "education": (10.0, education_score),
+        "education": (5.0, education_score),
         "location": (5.0, location_score),
     }
 
@@ -356,7 +382,7 @@ def evaluate_match(
     elif skill_score is not None:
         overall_score = skill_score
     else:
-        overall_score = 0.0
+        overall_score = 50.0
 
     return DeterministicMatchOutput(
         overall_score=overall_score,
@@ -365,9 +391,11 @@ def evaluate_match(
         role_score=role_score,
         education_score=education_score,
         location_score=location_score,
+        domain_score=domain_score,
         matching_skills=matching_skills,
         missing_mandatory_skills=missing_mandatory,
         missing_preferred_skills=missing_preferred,
+        inferred_domains=inferred_domains,
         evidence_map=evidence_map,
         score_breakdown=score_breakdown,
         strengths=strengths,

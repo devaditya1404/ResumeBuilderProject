@@ -86,6 +86,22 @@ SKILL_ALIASES = {
     "no sql": "NoSQL",
     "py": "Python",
     "python": "Python",
+    # SAP Modules & Enterprise Skills
+    "sap": "SAP",
+    "sap sd": "SAP SD",
+    "sap sd module": "SAP SD",
+    "sap sd functional consultant": "SAP SD",
+    "sap s4 hana": "SAP S/4 HANA",
+    "sap s/4 hana": "SAP S/4 HANA",
+    "s4/hana": "SAP S/4 HANA",
+    "s4 hana": "SAP S/4 HANA",
+    "sap erp": "SAP ERP",
+    "sap erp consultant": "SAP ERP",
+    "sap mm": "SAP MM",
+    "sap pp": "SAP PP",
+    "sap fico": "SAP FICO",
+    "sap fi/co": "SAP FICO",
+    "sap abap": "SAP ABAP",
     "pivot table": "Pivot Tables",
     "pivot tables": "Pivot Tables",
     "pivot": "Pivot Tables",
@@ -237,6 +253,10 @@ def skills_match(skill_a: str, skill_b: str) -> bool:
     if canon_a.lower() == "power bi" and ("power bi" in b_lower or "powerbi" in b_lower):
         return True
     if canon_b.lower() == "power bi" and ("power bi" in a_lower or "powerbi" in a_lower):
+        return True
+
+    # SAP module relationship matching (e.g. SAP ERP vs SAP SD / SAP MM)
+    if "sap" in canon_a.lower() and "sap" in canon_b.lower():
         return True
 
     return False
