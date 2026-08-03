@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,7 @@ from app.services.skill_alias import extract_atomic_skills
 from app.services.match_engine import evaluate_match
 from app.services.match_explainer import generate_match_explanation
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/requirements", tags=["Requirements"])
 
 
@@ -378,28 +380,63 @@ async def get_requirement_matches(requirement_id: str, db: AsyncSession = Depend
     if not req:
         raise HTTPException(status_code=404, detail="Requirement not found")
 
-    stmt = (
+    # 1. Fetch total candidates in database
+    stmt_cands = select(Candidate)
+    res_cands = await db.execute(stmt_cands)
+    all_candidates = res_cands.scalars().all()
+    total_candidates_count = len(all_candidates)
+
+    logger.info("=================================================")
+    logger.info(f"Requirement: {req.job_title} (ID: {req.id})")
+    logger.info(f"Total Candidates in Database: {total_candidates_count}")
+    logger.info(f"Candidate Names: {[c.name for c in all_candidates]}")
+    logger.info("=================================================")
+
+    if total_candidates_count == 0:
+        return []
+
+    # 2. Query existing MatchResult records for this requirement
+    stmt_m = (
         select(MatchResult)
         .where(MatchResult.requirement_id == requirement_id)
         .options(selectinload(MatchResult.candidate))
         .order_by(MatchResult.overall_score.desc())
     )
-    res = await db.execute(stmt)
-    match_results = res.scalars().all()
+    res_m = await db.execute(stmt_m)
+    match_results = res_m.scalars().all()
 
+    existing_matched_cand_ids = {m.candidate_id for m in match_results if m.candidate_id}
+
+    # 3. SOFT MATCHING GUARANTEE:
+    # If any candidate in DB is missing a MatchResult record, auto-match them on demand!
+    if len(existing_matched_cand_ids) < total_candidates_count:
+        logger.info(f"Auto-syncing soft matches for requirement '{req.job_title}': {len(existing_matched_cand_ids)} existing < {total_candidates_count} total candidates")
+        for cand in all_candidates:
+            if cand.id not in existing_matched_cand_ids:
+                await _match_single_candidate(req, cand, db)
+        await db.commit()
+
+        # Re-query all match results
+        res_m = await db.execute(stmt_m)
+        match_results = res_m.scalars().all()
+
+    # 4. Construct final ranked output (NO MINIMUM SCORE THRESHOLD FILTERING!)
     results = []
     for m in match_results:
         cand = m.candidate
+        if not cand:
+            continue
+
         results.append({
             "id": m.id,
             "requirement_id": m.requirement_id,
             "candidate_id": m.candidate_id,
-            "candidate_name": cand.name if cand else "Unknown",
-            "candidate_email": cand.email if cand else None,
-            "current_company": cand.current_company if cand else None,
-            "current_designation": cand.current_designation if cand else None,
-            "experience_years": cand.experience_years if cand else None,
-            "location": cand.current_location if cand else None,
+            "candidate_name": cand.name or "Unknown Candidate",
+            "candidate_email": cand.email,
+            "current_company": cand.current_company,
+            "current_designation": cand.current_designation,
+            "experience_years": cand.experience_years,
+            "location": cand.current_location,
             "overall_score": m.overall_score,
             "skill_score": m.skill_score,
             "experience_score": m.experience_score,
@@ -415,6 +452,7 @@ async def get_requirement_matches(requirement_id: str, db: AsyncSession = Depend
             "created_at": m.created_at,
         })
 
+    logger.info(f"Final Candidates Returned to API: {len(results)}")
     return results
 
 
