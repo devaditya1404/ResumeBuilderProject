@@ -1,5 +1,7 @@
 import os
-from typing import Optional
+import json
+from typing import Optional, List, Union
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -13,6 +15,28 @@ class Settings(BaseSettings):
     RESUME_STORAGE_PATH: str = os.getenv("RESUME_STORAGE_PATH", "./data/resumes")
     FAISS_INDEX_PATH: str = os.getenv("FAISS_INDEX_PATH", "./data/faiss")
     
+    # CORS Origins Configuration
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = []
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str], None]) -> List[str]:
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            v_str = v.strip()
+            if v_str.startswith("[") and v_str.endswith("]"):
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(item).strip().rstrip("/") for item in parsed if item]
+                except Exception:
+                    pass
+            return [i.strip().rstrip("/") for i in v_str.split(",") if i.strip()]
+        elif isinstance(v, list):
+            return [str(i).strip().rstrip("/") for i in v if i]
+        return []
+
     # Provider Abstraction Configuration
     # Options: "ollama" (for local dev) | "groq" (for production cloud)
     LLM_PROVIDER: str = os.getenv(
@@ -40,3 +64,4 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=True)
 
 settings = Settings()
+

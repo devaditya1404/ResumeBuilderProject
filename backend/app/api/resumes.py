@@ -334,7 +334,7 @@ async def _process_single_file(file: UploadFile, db: AsyncSession) -> dict:
         await db.refresh(candidate)
 
         response["success"] = True
-        response["upload_status"] = "SUCCESS"
+        response["upload_status"] = "SUCCESS" if parse_result.parsing_status == "PARSED" else parse_result.parsing_status
         response["parsing_status"] = parse_result.parsing_status
         response["warnings"] = parse_result.warnings
         response["candidate_id"] = candidate.id
@@ -382,6 +382,7 @@ async def _create_candidate(extraction, parse_result) -> Candidate:
         notice_period=extraction.notice_period,  # NULL if not stated
         expected_salary=extraction.expected_ctc,  # NULL if not stated
         professional_summary=extraction.summary,
+        languages=extraction.languages if hasattr(extraction, 'languages') else [],
     )
 
 
@@ -417,6 +418,9 @@ async def _update_candidate(candidate, extraction, parse_result, db) -> Candidat
 
     if extraction.summary:
         candidate.professional_summary = extraction.summary
+
+    if hasattr(extraction, 'languages') and extraction.languages:
+        candidate.languages = extraction.languages
 
     candidate.updated_at = datetime.utcnow()
 

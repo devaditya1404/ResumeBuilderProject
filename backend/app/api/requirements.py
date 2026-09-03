@@ -617,3 +617,21 @@ async def debug_candidate_match(requirement_id: str, candidate_id: str, db: Asyn
         "explanation": explanation
     }
 
+
+@router.delete("/{requirement_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_requirement(requirement_id: str, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import delete
+    stmt = select(Requirement).where(Requirement.id == requirement_id)
+    res = await db.execute(stmt)
+    req = res.scalar_one_or_none()
+
+    if not req:
+        raise HTTPException(status_code=404, detail="Requirement not found")
+
+    await db.execute(delete(MatchResult).where(MatchResult.requirement_id == requirement_id))
+    await db.execute(delete(RequirementSkill).where(RequirementSkill.requirement_id == requirement_id))
+    await db.execute(delete(Requirement).where(Requirement.id == requirement_id))
+    await db.commit()
+    return None
+
+

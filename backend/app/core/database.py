@@ -52,3 +52,14 @@ async def get_db():
 async def init_db():
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Auto-migrate missing columns for SQLite
+        def migrate_sqlite_columns(sync_conn):
+            from sqlalchemy import text
+            try:
+                res = sync_conn.execute(text("PRAGMA table_info(candidates)"))
+                columns = [row[1] for row in res.fetchall()]
+                if "languages" not in columns:
+                    sync_conn.execute(text("ALTER TABLE candidates ADD COLUMN languages JSON"))
+            except Exception:
+                pass
+        await conn.run_sync(migrate_sqlite_columns)

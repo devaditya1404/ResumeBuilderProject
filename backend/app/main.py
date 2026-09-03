@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.api import candidates, resumes, requirements, dashboard
+from app.api import candidates, resumes, requirements, dashboard, health
 
 import logging
 
@@ -50,6 +50,12 @@ if allowed_origins_env and allowed_origins_env.strip():
         if cleaned and cleaned not in allowed_origins:
             allowed_origins.append(cleaned)
 
+if settings.BACKEND_CORS_ORIGINS:
+    for item in settings.BACKEND_CORS_ORIGINS:
+        cleaned = str(item).strip().rstrip("/")
+        if cleaned and cleaned not in allowed_origins:
+            allowed_origins.append(cleaned)
+
 # Configure FastAPI CORSMiddleware with credentials support
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +70,7 @@ app.include_router(candidates.router, prefix=settings.API_V1_STR)
 app.include_router(resumes.router, prefix=settings.API_V1_STR)
 app.include_router(requirements.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
+app.include_router(health.router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():

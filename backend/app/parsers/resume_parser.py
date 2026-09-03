@@ -187,15 +187,12 @@ async def parse_resume(file_path: str) -> ParseResult:
 
     if llm_metadata.get("error"):
         error_msg = llm_metadata["error"]
-        result.errors.append(f"LLM_ERROR: {error_msg}")
-        if "TIMEOUT" in error_msg.upper():
-            result.warnings.append("OLLAMA_TIMEOUT")
-        elif "OLLAMA" in error_msg.upper():
-            result.warnings.append("OLLAMA_UNAVAILABLE")
-        logger.error(f"LLM extraction failed: {error_msg}")
-        # Continue with whatever we have deterministically
+        result.errors.append(f"AI_EXTRACTION_FAILED: {error_msg}")
+        result.warnings.append(f"AI parsing unavailable — {error_msg}")
+        logger.error(f"AI extraction pipeline failed for resume: {error_msg}")
+        # Mark as NEEDS_REVIEW instead of pretending full parse success
         llm_extraction = ResumeExtraction()
-        result.parsing_status = "PARTIAL"
+        result.parsing_status = "NEEDS_REVIEW"
     else:
         result.parsing_status = "PARSED"
 

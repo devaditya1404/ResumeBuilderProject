@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, Text, DateTime
+from sqlalchemy import Column, String, Integer, Float, Text, DateTime, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -31,6 +31,7 @@ class Candidate(Base):
     expected_salary = Column(String(100), nullable=True, default=None)
 
     professional_summary = Column(Text, nullable=True)
+    languages = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

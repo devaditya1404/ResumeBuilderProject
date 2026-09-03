@@ -32,6 +32,11 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    async def check_health_details(self) -> Dict[str, Any]:
+        """Return detailed health status dict: available, provider, model, error."""
+        pass
+
+    @abstractmethod
     async def chat_completion(
         self,
         prompt: str,
@@ -61,13 +66,49 @@ class OllamaLocalProvider(LLMProvider):
         self.timeout = settings.OLLAMA_TIMEOUT_SECONDS
 
     async def check_health(self) -> bool:
+        details = await self.check_health_details()
+        return details["available"]
+
+    async def check_health_details(self) -> Dict[str, Any]:
+        url = f"{self.base_url}/api/tags"
         try:
-            url = f"{self.base_url}/api/tags"
             async with httpx.AsyncClient(timeout=3.0) as client:
                 res = await client.get(url)
-                return res.status_code in (200, 204)
-        except Exception:
-            return False
+                if res.status_code in (200, 204):
+                    data = res.json() if res.status_code == 200 else {}
+                    models = [m.get("name") for m in data.get("models", []) if isinstance(m, dict)]
+                    return {
+                        "available": True,
+                        "provider": "ollama",
+                        "model": self.default_model,
+                        "installed_models": models,
+                        "error": None,
+                    }
+                err_msg = f"HTTP_{res.status_code}: {res.text[:150]}"
+                logger.error(f"AI Health Check failed for Ollama at {url}: {err_msg}")
+                return {
+                    "available": False,
+                    "provider": "ollama",
+                    "model": self.default_model,
+                    "error": f"Cannot connect to Ollama at {self.base_url} ({err_msg})",
+                }
+        except httpx.ConnectError as e:
+            err_msg = f"ConnectionError: Cannot connect to Ollama at {self.base_url}"
+            logger.error(f"AI extraction health check failed: {err_msg}")
+            return {
+                "available": False,
+                "provider": "ollama",
+                "model": self.default_model,
+                "error": err_msg,
+            }
+        except Exception as e:
+            logger.exception(f"AI extraction health check exception for Ollama: {str(e)}")
+            return {
+                "available": False,
+                "provider": "ollama",
+                "model": self.default_model,
+                "error": f"Ollama health check error: {str(e)}",
+            }
 
     async def chat_completion(
         self,
@@ -105,11 +146,13 @@ class OllamaLocalProvider(LLMProvider):
                 client_wall_time_ms = (time.time() - start_wall) * 1000
 
                 if response.status_code != 200:
+                    err_text = f"OLLAMA_HTTP_{response.status_code}: {response.text[:200]}"
+                    logger.error(f"AI extraction failed: {err_text}")
                     return {
                         "content": "",
                         "model": target_model,
                         "client_wall_time_ms": client_wall_time_ms,
-                        "error": f"OLLAMA_HTTP_{response.status_code}: {response.text[:200]}",
+                        "error": err_text,
                     }
 
                 data = response.json()
@@ -121,10 +164,14 @@ class OllamaLocalProvider(LLMProvider):
                     "error": None,
                 }
         except httpx.TimeoutException:
-            return {"content": "", "model": target_model, "client_wall_time_ms": (time.time() - start_wall) * 1000, "error": "OLLAMA_TIMEOUT"}
+            logger.error(f"AI extraction failed: Timeout after {self.timeout}s calling Ollama at {url}")
+            return {"content": "", "model": target_model, "client_wall_time_ms": (time.time() - start_wall) * 1000, "error": "OLLAMA_TIMEOUT: Request timed out"}
         except httpx.ConnectError:
-            return {"content": "", "model": target_model, "client_wall_time_ms": (time.time() - start_wall) * 1000, "error": "OLLAMA_CONNECTION_REFUSED"}
+            err_msg = f"ConnectionError: Cannot connect to Ollama at {self.base_url}"
+            logger.error(f"AI extraction failed:\n{err_msg}")
+            return {"content": "", "model": target_model, "client_wall_time_ms": (time.time() - start_wall) * 1000, "error": f"OLLAMA_CONNECTION_REFUSED: {err_msg}"}
         except Exception as e:
+            logger.exception(f"AI extraction failed:\n{str(e)}")
             return {"content": "", "model": target_model, "client_wall_time_ms": (time.time() - start_wall) * 1000, "error": f"OLLAMA_ERROR: {str(e)}"}
 
 
@@ -138,7 +185,25 @@ class GroqCloudProvider(LLMProvider):
         self.timeout = 30.0  # Fast cloud inference timeout
 
     async def check_health(self) -> bool:
-        return bool(self.api_key and self.api_key.strip())
+        details = await self.check_health_details()
+        return details["available"]
+
+    async def check_health_details(self) -> Dict[str, Any]:
+        has_key = bool(self.api_key and self.api_key.strip())
+        if not has_key:
+            logger.error("AI extraction health check failed: GROQ_API_KEY / CLOUD_LLM_API_KEY is not configured")
+            return {
+                "available": False,
+                "provider": "groq",
+                "model": self.default_model,
+                "error": "GROQ_API_KEY environment variable is not configured",
+            }
+        return {
+            "available": True,
+            "provider": "groq",
+            "model": self.default_model,
+            "error": None,
+        }
 
     async def chat_completion(
         self,

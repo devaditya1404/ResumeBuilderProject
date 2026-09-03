@@ -75,20 +75,26 @@ export const UploadResumesPage: React.FC<UploadResumesPageProps> = ({ onCandidat
 
           if (!result) return { ...t, progress: 100, status: 'failed' as const, errorMessage: 'No response for this file' };
 
+          const isNeedsReview = result.parsing_status === 'NEEDS_REVIEW';
           const isPartial = result.parsing_status === 'PARTIAL';
-          const isSuccess = result.success && !isPartial;
+          const isSuccess = result.success && result.parsing_status === 'PARSED';
 
           if (result.success) {
+            const taskStatus = (isNeedsReview || isPartial) ? ('partial' as const) : ('success' as const);
+            const statusMsg = isNeedsReview 
+              ? 'AI parsing failed – needs review' 
+              : (isPartial ? 'AI extraction unavailable — contacts & name extracted' : undefined);
+
             return {
               ...t,
               progress: 100,
-              status: isPartial ? ('partial' as const) : ('success' as const),
+              status: taskStatus,
               parsedName: result.candidate_name
                 ? `${result.candidate_name}${result.extraction_summary?.current_title ? ` (${result.extraction_summary.current_title})` : ''}`
                 : result.filename,
               extractionSummary: result.extraction_summary,
               timings: result.timings,
-              errorMessage: isPartial ? 'AI extraction unavailable — contacts & name extracted' : undefined,
+              errorMessage: statusMsg,
             };
           } else {
             return {
@@ -240,12 +246,12 @@ export const UploadResumesPage: React.FC<UploadResumesPageProps> = ({ onCandidat
                   )}
                   {t.status === 'success' && (
                     <span className="flex items-center gap-1 font-semibold text-emerald-600 text-[11px]">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Success
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Parsed Successfully
                     </span>
                   )}
                   {t.status === 'partial' && (
                     <span className="flex items-center gap-1 font-semibold text-amber-600 text-[11px]">
-                      <AlertCircle className="w-4 h-4 text-amber-600" /> Partially Parsed (AI Unavailable)
+                      <AlertCircle className="w-4 h-4 text-amber-600" /> AI parsing failed – needs review
                     </span>
                   )}
                   {t.status === 'failed' && (

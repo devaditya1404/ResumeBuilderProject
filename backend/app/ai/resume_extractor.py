@@ -7,6 +7,7 @@ token-efficient LLM responses, then maps back to canonical ResumeExtraction mode
 import json
 import logging
 import time
+import asyncio
 from typing import Optional, Dict, Any, Tuple
 from app.ai.ollama_client import chat_completion
 from app.ai.llm_provider import get_llm_provider
@@ -129,60 +130,76 @@ async def extract_resume_with_llm(
     provider = get_llm_provider()
     logger.info(f"Resume AI provider active: {settings.LLM_PROVIDER}")
 
-    is_healthy = await provider.check_health()
-    if not is_healthy:
-        err_msg = "LOCAL_OLLAMA_NOT_RUNNING" if settings.LLM_PROVIDER == "ollama" else "GROQ_API_KEY_NOT_CONFIGURED"
-        metadata["error"] = err_msg
-        logger.error(f"AI Provider '{settings.LLM_PROVIDER}' check failed: {err_msg}")
+    health_info = await provider.check_health_details() if hasattr(provider, "check_health_details") else {"available": await provider.check_health()}
+    if not health_info.get("available"):
+        err_reason = health_info.get("error") or ("LOCAL_OLLAMA_NOT_RUNNING" if settings.LLM_PROVIDER == "ollama" else "GROQ_API_KEY_NOT_CONFIGURED")
+        metadata["error"] = f"AI Provider '{settings.LLM_PROVIDER}' check failed: {err_reason}"
+        logger.error(f"AI Provider extraction aborted:\n{metadata['error']}")
         return None, metadata
 
     # Build prompt
     prompt = build_extraction_prompt(resume_text, contacts, section_hints)
 
-    # Make call
-    start = time.time()
-    result = await chat_completion(
-        prompt=prompt,
-        system_prompt=SYSTEM_PROMPT,
-        temperature=0.1,
-        json_mode=True,
-    )
+    # Retry loop (Attempt 1 -> Attempt 2 on transient failure)
+    max_attempts = 2
+    last_error = None
 
-    metadata["model"] = result.get("model")
-    metadata["client_wall_time_ms"] = result.get("client_wall_time_ms", (time.time() - start) * 1000)
-    metadata["total_duration_ms"] = result.get("total_duration_ms", 0)
-    metadata["load_duration_ms"] = result.get("load_duration_ms", 0)
-    metadata["prompt_eval_count"] = result.get("prompt_eval_count", 0)
-    metadata["prompt_eval_duration_ms"] = result.get("prompt_eval_duration_ms", 0)
-    metadata["eval_count"] = result.get("eval_count", 0)
-    metadata["eval_duration_ms"] = result.get("eval_duration_ms", 0)
-    
-    raw_content = result.get("content", "")
-    metadata["output_chars"] = len(raw_content)
-    metadata["raw_response"] = raw_content[:2000]
+    for attempt in range(1, max_attempts + 1):
+        start = time.time()
+        logger.info(f"AI extraction call attempt {attempt}/{max_attempts} using provider '{settings.LLM_PROVIDER}'")
+        
+        result = await chat_completion(
+            prompt=prompt,
+            system_prompt=SYSTEM_PROMPT,
+            temperature=0.1,
+            json_mode=True,
+        )
 
-    if result.get("error"):
-        metadata["error"] = result["error"]
-        logger.error(f"Ollama extraction failed: {result['error']}")
-        return None, metadata
+        metadata["model"] = result.get("model")
+        metadata["client_wall_time_ms"] = result.get("client_wall_time_ms", (time.time() - start) * 1000)
+        
+        raw_content = result.get("content", "")
+        metadata["output_chars"] = len(raw_content)
+        metadata["raw_response"] = raw_content[:2000]
 
-    content = raw_content.strip()
-    if not content:
-        metadata["error"] = "EMPTY_RESPONSE"
-        return None, metadata
+        if result.get("error"):
+            last_error = result["error"]
+            logger.warning(f"AI extraction attempt {attempt} failed: {last_error}")
+            if attempt < max_attempts:
+                await asyncio.sleep(0.5)
+                continue
+            metadata["error"] = f"AI_EXTRACTION_FAILED (Attempt {attempt}): {last_error}"
+            logger.error(f"AI extraction final failure: {metadata['error']}")
+            return None, metadata
 
-    try:
-        if content.startswith("```"):
-            lines = content.split("\n")
-            json_lines = [l for l in lines if not l.strip().startswith("```")]
-            content = "\n".join(json_lines)
+        content = raw_content.strip()
+        if not content:
+            last_error = "EMPTY_LLM_RESPONSE"
+            logger.warning(f"AI extraction attempt {attempt} returned empty response")
+            if attempt < max_attempts:
+                await asyncio.sleep(0.5)
+                continue
+            metadata["error"] = "EMPTY_LLM_RESPONSE"
+            return None, metadata
 
-        parsed = json.loads(content)
-        metadata["compact_json"] = parsed
-    except json.JSONDecodeError as e:
-        metadata["error"] = f"JSON_PARSE_ERROR: {str(e)}"
-        logger.error(f"Failed to parse LLM JSON: {str(e)}")
-        return None, metadata
+        try:
+            if content.startswith("```"):
+                lines = content.split("\n")
+                json_lines = [l for l in lines if not l.strip().startswith("```")]
+                content = "\n".join(json_lines)
+
+            parsed = json.loads(content)
+            metadata["compact_json"] = parsed
+            break  # Successfully parsed JSON!
+        except json.JSONDecodeError as e:
+            last_error = f"JSON_PARSE_ERROR: {str(e)}"
+            logger.warning(f"AI extraction attempt {attempt} JSON parse failed: {str(e)}")
+            if attempt < max_attempts:
+                await asyncio.sleep(0.5)
+                continue
+            metadata["error"] = f"JSON_PARSE_ERROR: {str(e)} | Raw output snippet: '{content[:100]}...'"
+            logger.error(f"AI extraction final JSON decode failure:\n{metadata['error']}")
+            return None, metadata
 
     # Parse into compact transport schema
     try:

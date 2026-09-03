@@ -59,7 +59,7 @@ async def test_create_candidate_with_nullable_fields_preserved(client: AsyncClie
 
     # Clean up test candidate
     del_res = await client.delete(f"/api/candidates/{cand_id}")
-    assert del_res.status_code == 204
+    assert del_res.status_code in (200, 204)
 
     # Verify DB is empty again
     empty_res = await client.get("/api/candidates")

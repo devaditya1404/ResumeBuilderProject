@@ -5,6 +5,7 @@ test_production_routing.py — Verify that LLM_PROVIDER=groq NEVER pings localho
 import asyncio
 import os
 import sys
+import httpx
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,12 +43,13 @@ async def test_groq_routing():
     }
 
     with patch.object(httpx.AsyncClient, "get", side_effect=AssertionError("CRITICAL BUG: GET HTTP request to localhost/Ollama was made!")) as mock_get:
-        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value.status_code = 200
-            mock_post.return_value.text = '{"choices": [{"message": {"content": "{\\"n\\": \\"Test Candidate\\", \\"sk\\": [\\"Python\\"]}"}}]}'
-            mock_post.return_value.json.return_value = {
+        with patch.object(httpx.AsyncClient, "post") as mock_post:
+            mock_res = AsyncMock()
+            mock_res.status_code = 200
+            mock_res.json.return_value = {
                 "choices": [{"message": {"content": '{"n": "Test Candidate", "sk": ["Python"]}'}}]
             }
+            mock_post.return_value = mock_res
 
             contacts = ContactInfo(email="test@example.com", phone="1234567890")
             extraction, metadata = await extract_resume_with_llm(
