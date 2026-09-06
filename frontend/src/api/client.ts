@@ -1,4 +1,14 @@
-const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const getDefaultBaseUrl = () => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com')) {
+    return 'https://talentvault-backend-wg0q.onrender.com';
+  }
+  return 'http://localhost:8000';
+};
+
+const rawBaseUrl = getDefaultBaseUrl();
 const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
 const API_BASE_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
 
