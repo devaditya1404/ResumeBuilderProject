@@ -8,12 +8,21 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "ResumeX Brain / TalentVault AI"
     API_V1_STR: str = "/api"
     
-    # SQLite Database URI
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/talentvault.db")
-    
-    # Storage Paths
-    RESUME_STORAGE_PATH: str = os.getenv("RESUME_STORAGE_PATH", "./data/resumes")
-    FAISS_INDEX_PATH: str = os.getenv("FAISS_INDEX_PATH", "./data/faiss")
+    # Storage Paths & Database URI
+    # When Render persistent disk (/app/data) is mounted, use persistent storage.
+    # Otherwise preserve local development relative paths (./data/).
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "sqlite+aiosqlite:////app/data/talentvault.db" if os.path.isdir("/app/data") else "sqlite+aiosqlite:///./data/talentvault.db"
+    )
+    RESUME_STORAGE_PATH: str = os.getenv(
+        "RESUME_STORAGE_PATH",
+        "/app/data/resumes" if os.path.isdir("/app/data") else "./data/resumes"
+    )
+    FAISS_INDEX_PATH: str = os.getenv(
+        "FAISS_INDEX_PATH",
+        "/app/data/faiss" if os.path.isdir("/app/data") else "./data/faiss"
+    )
     
     # CORS Origins Configuration
     BACKEND_CORS_ORIGINS: Union[List[str], str] = []
