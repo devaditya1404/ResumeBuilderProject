@@ -10,11 +10,13 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://talentvault-frontend.onrender.com
       - key: LLM_PROVIDER
-        value: groq
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-flash-lite-latest
+      - key: GEMINI_API_KEY
+        sync: false
       - key: GROQ_MODEL
         value: llama-3.1-8b-instant
-      - key: GROQ_API_KEY
-        sync: false
     disk:
       name: talentvault-storage
       mountPath: /app/data

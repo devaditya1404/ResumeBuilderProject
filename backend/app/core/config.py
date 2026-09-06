@@ -38,11 +38,15 @@ class Settings(BaseSettings):
         return []
 
     # Provider Abstraction Configuration
-    # Options: "ollama" (for local dev) | "groq" (for production cloud)
+    # Options: "gemini" (Production Cloud API - Free Tier) | "groq" (Cloud) | "ollama" (Local Dev)
     LLM_PROVIDER: str = os.getenv(
         "LLM_PROVIDER", 
-        "groq" if os.getenv("GROQ_API_KEY") or os.getenv("CLOUD_LLM_API_KEY") else ("ollama" if os.getenv("OLLAMA_MODE", "").lower() == "local" else "groq")
+        "gemini" if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else ("groq" if os.getenv("GROQ_API_KEY") else ("ollama" if os.getenv("OLLAMA_MODE", "").lower() == "local" else "gemini"))
     ).lower()
+
+    # Gemini API Settings (Free Cloud Tier)
+    GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", None))
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 
     # Cloud Production LLM Settings (Groq API)
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY", os.getenv("CLOUD_LLM_API_KEY", None))

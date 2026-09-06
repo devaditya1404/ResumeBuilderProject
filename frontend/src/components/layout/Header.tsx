@@ -60,16 +60,19 @@ export const Header: React.FC<HeaderProps> = ({ activePage, onSearchClick, selec
     return () => { mounted = false; };
   }, []);
 
+  const isGemini = aiHealth?.provider === 'gemini';
   const isGroq = aiHealth?.provider === 'groq';
   const isOllama = aiHealth?.provider === 'ollama';
   const isAvailable = aiHealth?.available ?? true;
 
-  const providerLabel = isGroq ? 'Groq Cloud' : isOllama ? 'Ollama Local' : isAvailable ? 'AI Engine' : 'AI Offline';
-  const modelLabel = isGroq 
-    ? 'Llama 3.1 Active' 
-    : isOllama 
-      ? `${aiHealth?.model || 'Qwen2.5'} Active` 
-      : (aiHealth?.error ? 'Needs Config' : 'Active');
+  const providerLabel = isGemini ? 'Gemini Cloud' : isGroq ? 'Groq Cloud' : isOllama ? 'Ollama Local' : isAvailable ? 'AI Engine' : 'AI Offline';
+  const modelLabel = isGemini
+    ? `${aiHealth?.model || 'Gemini Flash'} Active`
+    : isGroq 
+      ? 'Llama 3.1 Active' 
+      : isOllama 
+        ? `${aiHealth?.model || 'Qwen2.5'} Active` 
+        : (aiHealth?.error ? 'Needs Config' : 'Active');
 
   return (
     <header className="bg-white border-b border-slate-200/80 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-xs">
