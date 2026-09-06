@@ -175,12 +175,22 @@ class OllamaLocalProvider(LLMProvider):
             return {"content": "", "model": target_model, "client_wall_time_ms": (time.time() - start_wall) * 1000, "error": f"OLLAMA_ERROR: {str(e)}"}
 
 
+def clean_api_key(key_str: Optional[str]) -> Optional[str]:
+    if not key_str:
+        return None
+    k = key_str.strip().strip("'").strip('"')
+    if k.lower().startswith("bearer "):
+        k = k[7:].strip().strip("'").strip('"')
+    return k if k else None
+
+
 class GroqCloudProvider(LLMProvider):
     """Production Cloud LLM Provider using Groq API (OpenAI-compatible API format)."""
 
     def __init__(self):
         self.api_url = "https://api.groq.com/openai/v1/chat/completions"
-        self.api_key = settings.GROQ_API_KEY or settings.CLOUD_LLM_API_KEY
+        raw_key = settings.GROQ_API_KEY or settings.CLOUD_LLM_API_KEY or os.getenv("GROQ_KEY") or os.getenv("LLM_API_KEY")
+        self.api_key = clean_api_key(raw_key)
         self.default_model = settings.GROQ_MODEL or "llama-3.1-8b-instant"
         self.timeout = 30.0  # Fast cloud inference timeout
 
