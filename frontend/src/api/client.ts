@@ -47,6 +47,9 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 }
 
 export const api = {
+  // AI Health & Status
+  getAiHealth: () => fetchApi<{ available: boolean; provider: string; model: string; error?: string }>('/health/ai'),
+
   // Dashboard
   getDashboardStats: () => fetchApi<any>('/dashboard/stats'),
 

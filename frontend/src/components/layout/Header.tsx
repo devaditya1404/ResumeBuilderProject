@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Cpu, Database, Bell } from 'lucide-react';
 import { PageId } from '../../types';
+import { api } from '../../api/client';
 
 interface HeaderProps {
   activePage: PageId;
@@ -19,7 +20,7 @@ const PAGE_TITLES: Record<PageId, { title: string; subtitle: string }> = {
   },
   upload: {
     title: 'Upload Resumes',
-    subtitle: 'Drag & drop resumes for deterministic local parsing & AI structured extraction.'
+    subtitle: 'Drag & drop resumes for deterministic parsing & AI structured extraction.'
   },
   requirements: {
     title: 'Job Requirements',
@@ -31,7 +32,7 @@ const PAGE_TITLES: Record<PageId, { title: string; subtitle: string }> = {
   },
   chat: {
     title: 'AI Recruiter Chat',
-    subtitle: 'Query your local candidate database using natural language AI.'
+    subtitle: 'Query your candidate database using natural language AI.'
   },
   reports: {
     title: 'Analytics & Reports',
@@ -39,12 +40,36 @@ const PAGE_TITLES: Record<PageId, { title: string; subtitle: string }> = {
   },
   settings: {
     title: 'System Settings',
-    subtitle: 'Manage local Ollama models, storage directories, and debug parser options.'
+    subtitle: 'Manage AI provider models, storage directories, and debug parser options.'
   }
 };
 
 export const Header: React.FC<HeaderProps> = ({ activePage, onSearchClick, selectedRequirementTitle }) => {
   const currentInfo = PAGE_TITLES[activePage] || { title: 'TalentVault', subtitle: 'AI Recruitment Intelligence' };
+  const [aiHealth, setAiHealth] = useState<{ available: boolean; provider: string; model: string; error?: string } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    api.getAiHealth()
+      .then((data) => {
+        if (mounted) setAiHealth(data);
+      })
+      .catch(() => {
+        if (mounted) setAiHealth({ available: false, provider: 'offline', model: 'Unavailable' });
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const isGroq = aiHealth?.provider === 'groq';
+  const isOllama = aiHealth?.provider === 'ollama';
+  const isAvailable = aiHealth?.available ?? true;
+
+  const providerLabel = isGroq ? 'Groq Cloud' : isOllama ? 'Ollama Local' : isAvailable ? 'AI Engine' : 'AI Offline';
+  const modelLabel = isGroq 
+    ? 'Llama 3.1 Active' 
+    : isOllama 
+      ? `${aiHealth?.model || 'Qwen2.5'} Active` 
+      : (aiHealth?.error ? 'Needs Config' : 'Active');
 
   return (
     <header className="bg-white border-b border-slate-200/80 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-xs">
@@ -73,12 +98,14 @@ export const Header: React.FC<HeaderProps> = ({ activePage, onSearchClick, selec
           </kbd>
         </button>
 
-        {/* Local AI Engine Status Badge */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium border border-slate-800 shadow-xs">
-          <Cpu className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+        {/* Dynamic AI Engine Status Badge */}
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-white text-xs font-medium border shadow-xs ${
+          isAvailable ? 'bg-slate-900 border-slate-800' : 'bg-amber-950 border-amber-800'
+        }`}>
+          <Cpu className={`w-3.5 h-3.5 ${isAvailable ? 'text-indigo-400 animate-pulse' : 'text-amber-400'}`} />
           <div className="flex flex-col text-[11px]">
-            <span className="font-semibold text-slate-200 leading-tight">Ollama Local</span>
-            <span className="text-[9px] text-indigo-300 font-mono">Qwen2.5 Active</span>
+            <span className="font-semibold text-slate-200 leading-tight">{providerLabel}</span>
+            <span className={`text-[9px] font-mono ${isAvailable ? 'text-indigo-300' : 'text-amber-300'}`}>{modelLabel}</span>
           </div>
         </div>
 

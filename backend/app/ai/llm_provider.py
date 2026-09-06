@@ -198,12 +198,40 @@ class GroqCloudProvider(LLMProvider):
                 "model": self.default_model,
                 "error": "GROQ_API_KEY environment variable is not configured",
             }
-        return {
-            "available": True,
-            "provider": "groq",
-            "model": self.default_model,
-            "error": None,
-        }
+        
+        # Verify API key validity against Groq Cloud API
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key.strip()}"}
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                res = await client.get("https://api.groq.com/openai/v1/models", headers=headers)
+                if res.status_code == 200:
+                    return {
+                        "available": True,
+                        "provider": "groq",
+                        "model": self.default_model,
+                        "error": None,
+                    }
+                elif res.status_code in (401, 403):
+                    return {
+                        "available": False,
+                        "provider": "groq",
+                        "model": self.default_model,
+                        "error": f"GROQ_AUTH_ERROR ({res.status_code}): Invalid API Key",
+                    }
+                else:
+                    return {
+                        "available": False,
+                        "provider": "groq",
+                        "model": self.default_model,
+                        "error": f"GROQ_HTTP_{res.status_code}: {res.text[:100]}",
+                    }
+        except Exception as e:
+            return {
+                "available": False,
+                "provider": "groq",
+                "model": self.default_model,
+                "error": f"GROQ_CONNECT_ERROR: {str(e)}",
+            }
 
     async def chat_completion(
         self,

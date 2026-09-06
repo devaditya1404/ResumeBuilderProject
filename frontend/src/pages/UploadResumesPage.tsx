@@ -185,10 +185,10 @@ export const UploadResumesPage: React.FC<UploadResumesPageProps> = ({ onCandidat
 
           <div className="flex items-center justify-center gap-4 text-[11px] text-slate-400 pt-2 border-t border-slate-100">
             <span className="flex items-center gap-1">
-              <Cpu className="w-3.5 h-3.5 text-indigo-500" /> Local Ollama Parsing
+              <Cpu className="w-3.5 h-3.5 text-indigo-500" /> AI Resume Parsing
             </span>
             <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> 100% Private & Off-line
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Safe & Enterprise Secured
             </span>
           </div>
         </div>
@@ -197,14 +197,14 @@ export const UploadResumesPage: React.FC<UploadResumesPageProps> = ({ onCandidat
       {/* Parser Pipeline Steps Visual */}
       <div className="p-4 rounded-xl bg-slate-900 text-white text-xs space-y-3">
         <h4 className="font-bold uppercase tracking-wider text-indigo-300 text-[11px]">
-          Local Parser Pipeline Architecture
+          Parser Pipeline Architecture
         </h4>
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 text-[10px] text-center font-mono">
           <div className="p-2 rounded bg-slate-800 border border-slate-700">Resume File</div>
           <div className="p-2 rounded bg-slate-800 border border-slate-700 text-indigo-300">PyMuPDF / DOCX</div>
           <div className="p-2 rounded bg-slate-800 border border-slate-700">Text Normalizer</div>
           <div className="p-2 rounded bg-slate-800 border border-slate-700 text-emerald-300">Contact Regex</div>
-          <div className="p-2 rounded bg-slate-800 border border-slate-700 text-purple-300">Ollama Qwen</div>
+          <div className="p-2 rounded bg-slate-800 border border-slate-700 text-purple-300">AI LLM Engine</div>
           <div className="p-2 rounded bg-slate-800 border border-slate-700">Pydantic Validate</div>
           <div className="p-2 rounded bg-slate-800 border border-slate-700 text-amber-300">Exp Calculation</div>
           <div className="p-2 rounded bg-slate-800 border border-slate-700 text-indigo-400">SQLite DB</div>
@@ -241,7 +241,7 @@ export const UploadResumesPage: React.FC<UploadResumesPageProps> = ({ onCandidat
                   )}
                   {t.status === 'parsing' && (
                     <span className="flex items-center gap-1 font-semibold text-purple-600 text-[11px]">
-                      <Cpu className="w-3.5 h-3.5 animate-spin text-purple-600" /> Parsing via Ollama Qwen...
+                      <Cpu className="w-3.5 h-3.5 animate-spin text-purple-600" /> Parsing via AI Engine...
                     </span>
                   )}
                   {t.status === 'success' && (

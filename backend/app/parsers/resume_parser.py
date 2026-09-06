@@ -32,6 +32,7 @@ from app.parsers.experience_calculator import (
 )
 from app.parsers.skill_normalizer import normalize_skills
 from app.parsers.grounding_validator import validate_grounding
+from app.parsers.fallback_extractor import enrich_extraction_with_fallbacks
 from app.ai.resume_extractor import extract_resume_with_llm
 from app.ai.extraction_schemas import ResumeExtraction
 
@@ -255,12 +256,14 @@ async def parse_resume(file_path: str) -> ParseResult:
 
     result.grounding_issues = [str(i) for i in grounding.issues]
 
-    # ── 11. Normalize Skills & Recover Missing Employment ──
+    # ── 11. Normalize Skills, Enrich Fallbacks & Recover Missing Employment ──
     if llm_extraction:
+        llm_extraction = enrich_extraction_with_fallbacks(extraction.text, llm_extraction)
         if llm_extraction.skills:
             llm_extraction.skills = normalize_skills(llm_extraction.skills)
         from app.parsers.employment_recoverer import recover_missing_employment
         llm_extraction.experiences = await recover_missing_employment(extraction.text, llm_extraction.experiences)
+        result.extraction = llm_extraction
 
     # ── 12. Experience Calculation ──
     t0 = time.time()

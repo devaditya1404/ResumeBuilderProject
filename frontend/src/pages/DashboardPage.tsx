@@ -144,7 +144,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <FileText className="w-4 h-4 text-indigo-600" />
                   Recent Resume Uploads & Parsed Candidates
                 </h3>
-                <p className="text-xs text-slate-500">Processed locally via PyMuPDF + Ollama Qwen pipeline.</p>
+                <p className="text-xs text-slate-500">Processed via PyMuPDF & AI structured extraction pipeline.</p>
               </div>
               <button
                 onClick={() => onNavigate('upload')}

@@ -12,7 +12,7 @@ export const AiChatPage: React.FC<AiChatPageProps> = ({ candidates, onSelectCand
     {
       id: 'msg-1',
       sender: 'assistant',
-      text: 'Hello Recruiter! I am your local AI Talent Assistant connected directly to your SQLite database & Ollama Qwen model. Ask me anything about candidates, skills, or job matches.',
+      text: 'Hello Recruiter! I am your AI Talent Assistant connected directly to your candidate database. Ask me anything about candidates, skills, or job matches.',
       timestamp: '10:00 AM'
     }
   ]);
@@ -41,7 +41,7 @@ export const AiChatPage: React.FC<AiChatPageProps> = ({ candidates, onSelectCand
     if (!textToSend) setInputText('');
     setIsTyping(true);
 
-    // Simulate local DB + Ollama query response
+    // Simulate DB + AI query response
     setTimeout(() => {
       let matched: Candidate[] = [];
       let responseText = '';
@@ -49,7 +49,7 @@ export const AiChatPage: React.FC<AiChatPageProps> = ({ candidates, onSelectCand
       const q = query.toLowerCase();
       if (q.includes('java') || q.includes('5+')) {
         matched = candidates.filter((c) => c.topSkills.includes('Java') || (c.experienceYears || 0) >= 5);
-        responseText = `Found ${matched.length} candidate(s) with Java backend expertise or 5+ years experience in SQLite database:`;
+        responseText = `Found ${matched.length} candidate(s) with Java backend expertise or 5+ years experience in candidate database:`;
       } else if (q.includes('power bi') || q.includes('pmo')) {
         matched = candidates.filter((c) => c.topSkills.includes('PMO') || c.topSkills.includes('Power BI'));
         responseText = `Here are candidates matching PMO & Power BI analytical reporting:`;
@@ -86,10 +86,10 @@ export const AiChatPage: React.FC<AiChatPageProps> = ({ candidates, onSelectCand
             <h3 className="font-bold text-sm text-white flex items-center gap-2">
               AI Recruiter Assistant
               <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
-                Ollama Qwen • Local DB
+                AI Engine • Candidate DB
               </span>
             </h3>
-            <p className="text-[11px] text-slate-400">Natural language search over local candidate profiles</p>
+            <p className="text-[11px] text-slate-400">Natural language search over candidate profiles</p>
           </div>
         </div>
       </div>
@@ -167,7 +167,7 @@ export const AiChatPage: React.FC<AiChatPageProps> = ({ candidates, onSelectCand
         {isTyping && (
           <div className="flex items-center gap-2 text-xs text-slate-500 italic">
             <Sparkles className="w-4 h-4 text-indigo-500 animate-spin" />
-            Ollama AI querying SQLite talent vault...
+            AI querying talent vault...
           </div>
         )}
       </div>

@@ -42,7 +42,15 @@ async def test_groq_routing():
         "error": None
     }
 
-    with patch.object(httpx.AsyncClient, "get", side_effect=AssertionError("CRITICAL BUG: GET HTTP request to localhost/Ollama was made!")) as mock_get:
+    def mock_get_side_effect(url, *args, **kwargs):
+        if "127.0.0.1" in url or "localhost" in url or "ollama" in url:
+            raise AssertionError(f"CRITICAL BUG: GET HTTP request to localhost/Ollama was made! URL: {url}")
+        res = AsyncMock()
+        res.status_code = 200
+        res.json.return_value = {"data": []}
+        return res
+
+    with patch.object(httpx.AsyncClient, "get", side_effect=mock_get_side_effect) as mock_get:
         with patch.object(httpx.AsyncClient, "post") as mock_post:
             mock_res = AsyncMock()
             mock_res.status_code = 200
@@ -67,9 +75,6 @@ async def test_groq_routing():
             print(f"HTTP POST Destination URL: {call_url}")
             assert "api.groq.com" in call_url, f"Expected Groq URL, got: {call_url}"
             assert "127.0.0.1" not in call_url and "localhost" not in call_url
-
-            # Assert GET (Ollama health check) was NEVER called
-            assert not mock_get.called, "GET request to Ollama tags was called!"
 
     print("\n" + "=" * 75)
     print("PRODUCTION GROQ ROUTING & ZERO LOCALHOST TEST: 100% PASSED!")
