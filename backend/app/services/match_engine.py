@@ -38,9 +38,17 @@ class DeterministicMatchOutput(BaseModel):
 def build_skill_regex(target_skill: str) -> Optional[re.Pattern]:
     """Build safe, regex-bounded search pattern for a skill."""
     norm = normalize_skill_name(target_skill)
-    lower = norm.lower()
+    lower = norm.lower().strip()
 
-    if lower == "java":
+    if lower in ["comptia a+", "a+"]:
+        return re.compile(r'\b(comptia\s*a\+?|a\+)\b', re.IGNORECASE)
+    elif lower in ["c++", "cpp"]:
+        return re.compile(r'\b(c\+\+|cpp)\b', re.IGNORECASE)
+    elif lower in ["c#", "c-sharp"]:
+        return re.compile(r'\b(c#|c-sharp|c\s+sharp)\b', re.IGNORECASE)
+    elif lower in ["node.js", "nodejs"]:
+        return re.compile(r'\b(node\.js|nodejs)\b', re.IGNORECASE)
+    elif lower == "java":
         return re.compile(r'\bjava\b', re.IGNORECASE)
     elif lower == "spring boot":
         return re.compile(r'\bspring\s*boot\b', re.IGNORECASE)
@@ -68,10 +76,18 @@ def build_skill_regex(target_skill: str) -> Optional[re.Pattern]:
         escaped = re.escape(lower)
         return re.compile(r'\b' + escaped + r'\b', re.IGNORECASE)
 
-    escaped = re.escape(target_skill.strip())
-    if escaped:
-        return re.compile(r'\b' + escaped + r'\b', re.IGNORECASE)
-    return None
+    raw_str = target_skill.strip()
+    if not raw_str:
+        return None
+
+    escaped = re.escape(raw_str)
+    first_char = raw_str[0]
+    last_char = raw_str[-1]
+
+    prefix = r'\b' if (first_char.isalnum() or first_char == '_') else r'(?:^|\s)'
+    suffix = r'\b' if (last_char.isalnum() or last_char == '_') else r'(?:$|\s|[.,;:!])'
+
+    return re.compile(prefix + escaped + suffix, re.IGNORECASE)
 
 
 def search_text_snippet_for_skill(text: str, target_skill: str) -> Optional[str]:

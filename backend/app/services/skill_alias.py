@@ -109,6 +109,33 @@ SKILL_ALIASES = {
     "v look up": "VLOOKUP",
     "xlookup": "XLOOKUP",
     "power query": "Power Query",
+    # IT Support, Deskside & Infrastructure Aliases
+    "troubleshooting": "Troubleshooting",
+    "technical troubleshooting": "Troubleshooting",
+    "desktop troubleshooting": "Troubleshooting",
+    "deskside support": "Troubleshooting",
+    "ticket management": "Ticket Management",
+    "ticket handling": "Ticket Management",
+    "ticketing": "Ticket Management",
+    "incident management": "Ticket Management",
+    "system maintenance": "System Maintenance",
+    "desktop support": "System Maintenance",
+    "system support": "System Maintenance",
+    "hardware maintenance": "System Maintenance",
+    "it maintenance": "System Maintenance",
+    "operating systems": "Operating Systems",
+    "os installation": "Operating Systems",
+    "networking": "Networking",
+    "networking concepts": "Networking",
+    "lan/wan": "LAN/WAN",
+    "lan": "LAN",
+    "wan": "WAN",
+    "zendesk": "Zendesk",
+    "freshdesk": "Freshdesk",
+    "comptia a+": "CompTIA A+",
+    "a+": "CompTIA A+",
+    "c++": "C++",
+    "c#": "C#",
 }
 
 # Strict distinct pairs that must NEVER match
@@ -148,10 +175,11 @@ def clean_ocr_and_annotations(skill_str: str) -> str:
 
 def extract_atomic_skills(raw_skill_input: str) -> List[str]:
     """
-    Split category prefixes and composite skill entries into atomic comparable skills.
+    Split category prefixes, parenthetical groupings, and composite skill entries into atomic comparable skills.
     Example:
-      'Multithreading Frameworks: Spring Boot' -> ['Spring Boot']
-      'API integration Database: MySQL / PostgreSQL / Oracle' -> ['SQL', 'PostgreSQL', 'Oracle']
+      'Operating Systems (Windows, Linux, macOS)' -> ['Operating Systems', 'Windows', 'Linux', 'macOS']
+      'Networking concepts (LAN/WAN)' -> ['Networking concepts', 'LAN/WAN', 'LAN', 'WAN']
+      'Ticketing and remote desktop applications (Zendesk, Freshdesk)' -> ['Ticketing and remote desktop applications', 'Zendesk', 'Freshdesk']
     """
     if not raw_skill_input or not isinstance(raw_skill_input, str):
         return []
@@ -159,21 +187,39 @@ def extract_atomic_skills(raw_skill_input: str) -> List[str]:
     cleaned = clean_ocr_and_annotations(raw_skill_input)
     atomic_list: List[str] = []
 
-    # Split by colon, slash, comma, semicolon, bullet, newline
-    sub_tokens = re.split(r'[:/,;•\n]+', cleaned)
+    # First, extract parenthetical contents cleanly if present
+    parenthetical_matches = re.findall(r'\(([^)]+)\)', cleaned)
+    
+    # Remove parenthetical blocks to get base skill title
+    base_title = re.sub(r'\([^)]*\)', '', cleaned).strip()
 
-    for token in sub_tokens:
-        tok_clean = token.strip()
-        if not tok_clean:
-            continue
-        
-        # Skip pure category labels like "Frameworks", "Database", "Testing"
-        if tok_clean.lower() in GENERIC_CATEGORY_WORDS:
-            continue
+    candidate_raw_tokens = []
+    if base_title:
+        candidate_raw_tokens.append(base_title)
+    
+    for p_content in parenthetical_matches:
+        candidate_raw_tokens.append(p_content)
 
-        norm = normalize_skill_name(tok_clean)
-        if norm and norm.lower() not in GENERIC_CATEGORY_WORDS and norm not in atomic_list:
-            atomic_list.append(norm)
+    # Split sub-tokens by colon, slash, comma, semicolon, bullet, newline, 'and'
+    for raw_tok in candidate_raw_tokens:
+        sub_tokens = re.split(r'[:;,•\n]+|\b(?:and)\b', raw_tok, flags=re.IGNORECASE)
+        for token in sub_tokens:
+            # Also handle slashes like LAN/WAN -> both LAN/WAN and LAN, WAN
+            slash_tokens = [token.strip()]
+            if '/' in token and not token.strip().lower().startswith("http"):
+                slash_tokens.extend([t.strip() for t in token.split('/') if t.strip()])
+            
+            for st in slash_tokens:
+                st_clean = st.strip()
+                if not st_clean:
+                    continue
+
+                if st_clean.lower() in GENERIC_CATEGORY_WORDS:
+                    continue
+
+                norm = normalize_skill_name(st_clean)
+                if norm and norm.lower() not in GENERIC_CATEGORY_WORDS and norm not in atomic_list:
+                    atomic_list.append(norm)
 
     return atomic_list
 

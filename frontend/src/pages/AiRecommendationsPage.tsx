@@ -193,7 +193,7 @@ export const AiRecommendationsPage: React.FC<AiRecommendationsPageProps> = ({
                         {m.candidate_name}
                       </h4>
                       <p className="text-xs text-indigo-600 font-semibold">
-                        {m.current_designation || 'Candidate'} • {m.experience_years ? `${m.experience_years} Years` : 'Experience N/A'}
+                        {m.current_designation || 'Candidate'} • {m.experience_years !== null && m.experience_years !== undefined ? `${m.experience_years} Years` : 'Experience N/A'}
                       </p>
                       <p className="text-[11px] text-slate-500 mt-0.5">
                         Company: <span className="font-medium text-slate-800">{m.current_company || 'N/A'}</span>
