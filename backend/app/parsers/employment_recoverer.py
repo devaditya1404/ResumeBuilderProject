@@ -13,9 +13,9 @@ from app.ai.extraction_schemas import ExtractedExperience, _coerce_str
 
 logger = logging.getLogger(__name__)
 
-# Date range pattern matching employment dates in source text
+# Non-backtracking date range pattern matching employment dates in source text
 DATE_BLOCK_PATTERN = re.compile(
-    r'((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|\b20\d\d|\b19\d\d)\s*,?\s*(?:\b\d{4}\b)?\s*[-–—to\s]+\s*(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|\b20\d\d|\b19\d\d|Present|Current))',
+    r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|\d{4})\s*[-–—\s]+\s*(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|\d{4}|Present|Current)\b',
     re.IGNORECASE
 )
 
@@ -39,7 +39,7 @@ def find_unmatched_date_snippets(
     # Search for all date matches in full text
     for match in DATE_BLOCK_PATTERN.finditer(resume_text):
         start_char, end_char = match.span()
-        date_str = match.group(1).strip()
+        date_str = match.group(0).strip()
         
         years = re.findall(r'\b20\d\d|\b19\d\d', date_str)
         months = re.findall(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*', date_str, re.IGNORECASE)
