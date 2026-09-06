@@ -39,10 +39,22 @@ class Settings(BaseSettings):
 
     # Provider Abstraction Configuration
     # Options: "gemini" (Production Cloud API - Free Tier) | "groq" (Cloud) | "ollama" (Local Dev)
-    LLM_PROVIDER: str = os.getenv(
-        "LLM_PROVIDER", 
-        "gemini" if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else ("groq" if os.getenv("GROQ_API_KEY") else ("ollama" if os.getenv("OLLAMA_MODE", "").lower() == "local" else "gemini"))
-    ).lower()
+    LLM_PROVIDER: str = "gemini"
+
+    @field_validator("LLM_PROVIDER", mode="before")
+    @classmethod
+    def validate_llm_provider(cls, v: Union[str, None]) -> str:
+        prov = (str(v) if v is not None else "").strip().lower()
+        gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        groq_key = os.getenv("GROQ_API_KEY") or os.getenv("CLOUD_LLM_API_KEY")
+        
+        if prov == "ollama":
+            return "ollama"
+        if prov == "gemini" or gemini_key or not groq_key:
+            return "gemini"
+        if prov == "groq" and groq_key:
+            return "groq"
+        return "gemini"
 
     # Gemini API Settings (Free Cloud Tier)
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", None))
